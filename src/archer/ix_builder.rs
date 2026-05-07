@@ -16,8 +16,8 @@ pub fn build_update_mid_price_ix(
 ) -> Instruction {
     let (maker_book_pda, _) = MakerBook::get_address(market, maker);
     let mut data = vec![IX_UPDATE_MID_PRICE];
-    data.extend_from_slice(&new_mid_price_ticks.to_le_bytes());
     data.extend_from_slice(&sequence_number.to_le_bytes());
+    data.extend_from_slice(&new_mid_price_ticks.to_le_bytes());
     Instruction {
         program_id: PROGRAM_ID,
         accounts: vec![
@@ -93,8 +93,8 @@ pub fn build_update_instructions(
 
     if book_update.mid_price_changed {
         let mut mid_data = vec![IX_UPDATE_MID_PRICE];
-        mid_data.extend_from_slice(&book_update.new_mid_price_ticks.to_le_bytes());
         mid_data.extend_from_slice(&seq.to_le_bytes());
+        mid_data.extend_from_slice(&book_update.new_mid_price_ticks.to_le_bytes());
         instructions.push(Instruction {
             program_id: PROGRAM_ID,
             accounts: vec![
@@ -106,15 +106,15 @@ pub fn build_update_instructions(
         seq += 1;
     }
 
-    // Layout: [disc(1), num_bids(1), num_asks(1), padding(5), mid_ticks(8), seq(8), bids(256), asks(256)]
+    // Layout: [disc(1), seq(8), mid_ticks(8), num_bids(1), num_asks(1), padding(5), bids(256), asks(256)]
     let update_data_len = 8 + 8 + 8 + (MAX_LEVELS * 2 * MAKER_LEVEL_SIZE); // 536
     let mut data = vec![0u8; update_data_len];
     data[0] = IX_UPDATE_BOOK;
-    data[1] = book_update.bid_levels.len().min(MAX_LEVELS) as u8;
-    data[2] = book_update.ask_levels.len().min(MAX_LEVELS) as u8;
-    // bytes 3-7: padding (already zero)
-    data[8..16].copy_from_slice(&book_update.new_mid_price_ticks.to_le_bytes());
-    data[16..24].copy_from_slice(&seq.to_le_bytes());
+    data[1..9].copy_from_slice(&seq.to_le_bytes());
+    data[9..17].copy_from_slice(&book_update.new_mid_price_ticks.to_le_bytes());
+    data[17] = book_update.bid_levels.len().min(MAX_LEVELS) as u8;
+    data[18] = book_update.ask_levels.len().min(MAX_LEVELS) as u8;
+    // bytes 19-23: padding (already zero)
 
     let bids_offset = 24;
     for (i, level) in book_update.bid_levels.iter().take(MAX_LEVELS).enumerate() {
