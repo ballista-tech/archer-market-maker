@@ -83,6 +83,7 @@ pub fn build_book_update(
     quotes: &TwoSidedQuote,
     current_mid_price_ticks: u64,
     config: &MarketConfig,
+    is_lo: bool,
 ) -> Result<BookUpdate> {
     ensure!(quotes.bids.len() <= MAX_LEVELS, "too many bid levels: {}", quotes.bids.len());
     ensure!(quotes.asks.len() <= MAX_LEVELS, "too many ask levels: {}", quotes.asks.len());
@@ -103,19 +104,29 @@ pub fn build_book_update(
         ensure!(bb.price < ba.price, "crossed book: bid {} >= ask {}", bb.price, ba.price);
     }
 
-    let new_mid_price_ticks = match (quotes.bids.first(), quotes.asks.first()) {
-        (Some(b), Some(a)) => price_to_ticks((b.price + a.price) / 2.0, config)?,
-        (Some(b), None) => price_to_ticks(b.price, config)?,
-        (None, Some(a)) => price_to_ticks(a.price, config)?,
-        (None, None) => bail!("empty quote"),
+    // LO books pin `mid_price_ticks` to 0 and each level's `price_offset_ticks`
+    // is its absolute price tick. MM books anchor levels to a moving mid and
+    // store signed offsets from it.
+    let new_mid_price_ticks = if is_lo {
+        0
+    } else {
+        match (quotes.bids.first(), quotes.asks.first()) {
+            (Some(b), Some(a)) => price_to_ticks((b.price + a.price) / 2.0, config)?,
+            (Some(b), None) => price_to_ticks(b.price, config)?,
+            (None, Some(a)) => price_to_ticks(a.price, config)?,
+            (None, None) => bail!("empty quote"),
+        }
     };
 
-    let mid_price_changed = new_mid_price_ticks != current_mid_price_ticks;
+    // For LO the on-chain mid never moves, so there is never a standalone
+    // mid-price update to emit.
+    let mid_price_changed = !is_lo && new_mid_price_ticks != current_mid_price_ticks;
+    let anchor_ticks = new_mid_price_ticks as i64;
 
     let mut bid_levels: Vec<MakerLevel> = Vec::with_capacity(quotes.bids.len());
     for (i, q) in quotes.bids.iter().enumerate() {
         let price_ticks = price_to_ticks(q.price, config)?;
-        let offset = price_ticks as i64 - new_mid_price_ticks as i64;
+        let offset = price_ticks as i64 - anchor_ticks;
         let size_lots = base_amount_to_lots(q.size, config)?;
 
         if i > 0 {
@@ -134,7 +145,7 @@ pub fn build_book_update(
     let mut ask_levels: Vec<MakerLevel> = Vec::with_capacity(quotes.asks.len());
     for (i, q) in quotes.asks.iter().enumerate() {
         let price_ticks = price_to_ticks(q.price, config)?;
-        let offset = price_ticks as i64 - new_mid_price_ticks as i64;
+        let offset = price_ticks as i64 - anchor_ticks;
         let size_lots = base_amount_to_lots(q.size, config)?;
 
         if i > 0 {

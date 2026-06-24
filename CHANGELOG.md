@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-06-12]
+
+### Added
+- **Limit-order (LO) book support.** `init --kind lo` creates an LO `MakerBook` (the program's new init `kind` byte; `mm` remains the default). `MakerBook` now decodes the `kind` field carved from the old status padding. The engine is LO-aware: LO books never send `UpdateMidPrice` (their mid is pinned to 0) and re-quote at absolute price ticks on every move, while MM books keep the cheap mid-shift path.
+- **`set-delegate` CLI command.** Wires the existing `SetBookDelegate` builder; pass `--delegate <pubkey>` to set, or omit / `--delegate clear` to remove.
+- **Live fill + inventory subscriptions (`fills.rs`).** Over the RPC websocket, `run` now (1) `account_subscribe`s to the maker book to keep inventory (`base/quote_total_lots`, `mid`, sequence) exact in real time instead of only at startup, and (2) `logs_subscribe`s with a `mentions` filter to decode `MakerFillEvent`s (disc `[60,14,66,1,…]`) for per-fill logging and counters. Optional `[connection].ws_url` override; otherwise derived from `rpc_url`.
+- **Registry awareness.** `run` and `status` check the market's `MakerRegistry` PDA and warn when the book is not registered (the aggregator may skip unregistered quotes).
+- `status` now prints book kind, status, registration, delegate, sync spread, and expiry slots.
+
 ## [2026-04-17]
 
 ### Added

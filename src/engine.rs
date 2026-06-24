@@ -29,9 +29,10 @@ pub async fn run_engine(
     market_pubkey: Pubkey,
     tx_sender: Arc<TxSender>,
     initial_sequence_number: u64,
+    is_lo: bool,
     cancel: CancellationToken,
 ) {
-    let strategy = Strategy::new(&mm_config.strategy);
+    let strategy = Strategy::new(&mm_config.strategy, is_lo);
     let heartbeat = Duration::from_millis(mm_config.execution.heartbeat_interval_ms);
     let signer_pubkey = signer.pubkey();
     let staleness_us = mm_config.feed.staleness_timeout_ms * 1000;
@@ -45,6 +46,7 @@ pub async fn run_engine(
         %market_pubkey, %maker_pubkey,
         heartbeat_ms = mm_config.execution.heartbeat_interval_ms,
         num_levels = mm_config.strategy.spread_levels_bps.len(),
+        book_kind = if is_lo { "LO" } else { "MM" },
         "Engine starting (event-driven + heartbeat)"
     );
 
@@ -122,6 +124,10 @@ pub async fn run_engine(
         );
 
         match decision {
+            QuoteDecision::Noop => {
+                state.cycles_total.fetch_add(1, Relaxed);
+                continue;
+            }
             QuoteDecision::ClearBook => {
                 local_seq += 1;
                 let ix = build_clear_book_ix(&signer_pubkey, &market_pubkey, &maker_pubkey, local_seq);

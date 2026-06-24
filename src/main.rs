@@ -2,6 +2,7 @@ mod archer;
 mod config;
 mod engine;
 mod feed;
+mod fills;
 mod state;
 mod strategy;
 mod tx;
@@ -13,10 +14,10 @@ use anyhow::{Context, Result};
 use crate::archer::accounts::{maker_balances, parse_market_state, active_bid_levels, active_ask_levels};
 use crate::archer::ix_builder::{
     build_clear_book_ix, build_deposit_ix, build_initialize_maker_book_ix,
-    build_update_expiry_in_slots_ix, build_withdraw_ix,
+    build_set_book_delegate_ix, build_update_expiry_in_slots_ix, build_withdraw_ix,
 };
 use crate::archer::client::{ArcherClient, SendOptions};
-use crate::archer::types::MakerBook;
+use crate::archer::types::{MakerBook, MakerRegistry, MAKER_KIND_LO, MAKER_KIND_MM};
 use clap::Parser;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
@@ -56,13 +57,31 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli {
         Cli::Run { config, shadow } => cmd_run(&config, shadow).await,
-        Cli::Init { config } => cmd_init(&config).await,
+        Cli::Init { config, kind } => cmd_init(&config, &kind).await,
         Cli::Deposit { config, base, quote } => cmd_deposit(&config, base, quote).await,
         Cli::Withdraw { config } => cmd_withdraw(&config).await,
         Cli::Kill { config } => cmd_kill(&config).await,
         Cli::Status { config } => cmd_status(&config).await,
         Cli::SetExpiry { config, slots } => cmd_set_expiry(&config, slots).await,
+        Cli::SetDelegate { config, delegate } => cmd_set_delegate(&config, delegate).await,
     }
+}
+
+fn parse_book_kind(kind: &str) -> Result<u8> {
+    match kind.to_lowercase().as_str() {
+        "mm" | "maker" => Ok(MAKER_KIND_MM),
+        "lo" | "limit" | "limit-order" => Ok(MAKER_KIND_LO),
+        other => anyhow::bail!("invalid book kind '{other}' (expected 'mm' or 'lo')"),
+    }
+}
+
+/// Fetch the market's maker registry and report whether `maker_book` is listed.
+/// Returns `None` when no registry account exists for the market.
+async fn check_registry(rpc: &RpcClient, market: &Pubkey, maker_book: &Pubkey) -> Option<bool> {
+    let (registry_pda, _) = MakerRegistry::get_address(market);
+    let account = rpc.get_account(&registry_pda).await.ok()?;
+    let registry = MakerRegistry::load(&account.data).ok()?;
+    Some(registry.contains(maker_book))
 }
 
 async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
@@ -102,6 +121,21 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     let bal = maker_balances(&initial_book, &sdk_config);
     tracing::info!(base_free = bal.base_free, quote_free = bal.quote_free, "Initial balances");
 
+    let is_lo = initial_book.is_lo();
+    tracing::info!(book_kind = initial_book.kind_str(), "Maker book loaded");
+
+    // Registry awareness: if the market has a registry and our book isn't in it,
+    // the aggregator may never route flow to us.
+    let (maker_book_pda, _) = MakerBook::get_address(&market_pubkey, &maker_pubkey);
+    match check_registry(&rpc, &market_pubkey, &maker_book_pda).await {
+        Some(true) => tracing::info!("Maker book is registered in the market registry"),
+        Some(false) => tracing::warn!(
+            %maker_book_pda,
+            "Maker book is NOT registered — the admin must run RegisterMaker or the aggregator may skip your quotes"
+        ),
+        None => tracing::debug!("No maker registry for this market (registration not required)"),
+    }
+
     let state = Arc::new(SharedState::new());
     state.cached_mid_ticks.store(initial_book.mid_price_ticks, std::sync::atomic::Ordering::Relaxed);
     state.onchain_sequence_number.store(initial_book.last_updated_sequence_number, std::sync::atomic::Ordering::Relaxed);
@@ -120,6 +154,16 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
         state.clone(), mm_config.feed.clone(), mm_config.strategy.vol_window, cancel.clone(),
     ));
 
+    // Live fill + inventory subscriptions over the RPC websocket.
+    let ws_url = if mm_config.connection.ws_url.is_empty() {
+        fills::ws_url_from_rpc(&mm_config.connection.rpc_url)
+    } else {
+        mm_config.connection.ws_url.clone()
+    };
+    tokio::spawn(fills::run_fills(
+        state.clone(), sdk_config.clone(), ws_url, maker_book_pda, cancel.clone(),
+    ));
+
     tracing::info!("Waiting for price feed...");
     let mut waited = 0u64;
     while state.mid_price.load(std::sync::atomic::Ordering::Relaxed) <= 0.0 {
@@ -132,7 +176,7 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     let engine_handle = tokio::spawn(engine::run_engine(
         state.clone(), sdk_config.clone(), mm_config.clone(), signer.clone(),
         maker_pubkey, market_pubkey, tx_sender.clone(),
-        initial_book.last_updated_sequence_number, cancel.clone(),
+        initial_book.last_updated_sequence_number, is_lo, cancel.clone(),
     ));
 
     tracing::info!("Engine running. Press Ctrl+C to stop.");
@@ -144,15 +188,45 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_init(config_path: &std::path::Path) -> Result<()> {
+async fn cmd_init(config_path: &std::path::Path, kind: &str) -> Result<()> {
+    let mm_config = load_config(config_path)?;
+    init_tracing(&mm_config.monitoring.log_level);
+    let kind_byte = parse_book_kind(kind)?;
+    let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
+    let market: Pubkey = mm_config.market.market_pubkey.parse()?;
+    let client = ArcherClient::new(&mm_config.connection.rpc_url);
+    let ix = build_initialize_maker_book_ix(&keypair.pubkey(), &market, kind_byte);
+    let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
+    let kind_label = if kind_byte == MAKER_KIND_LO { "LO (limit-order)" } else { "MM (market-maker)" };
+    println!("Maker book initialized [{kind_label}]: {sig}");
+    Ok(())
+}
+
+async fn cmd_set_delegate(config_path: &std::path::Path, delegate: Option<String>) -> Result<()> {
     let mm_config = load_config(config_path)?;
     init_tracing(&mm_config.monitoring.log_level);
     let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
-    let ix = build_initialize_maker_book_ix(&keypair.pubkey(), &market);
+
+    // Pubkey::default() (all zeros) clears the delegate on-chain.
+    let clear = matches!(
+        delegate.as_deref().map(str::to_lowercase).as_deref(),
+        None | Some("clear") | Some("none") | Some("")
+    );
+    let delegate_pubkey = if clear {
+        Pubkey::default()
+    } else {
+        delegate.as_deref().unwrap().parse().context("Invalid delegate pubkey")?
+    };
+
+    let ix = build_set_book_delegate_ix(&keypair.pubkey(), &market, &delegate_pubkey);
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
-    println!("Maker book initialized: {sig}");
+    if clear {
+        println!("Delegate cleared: {sig}");
+    } else {
+        println!("Delegate set to {delegate_pubkey}: {sig}");
+    }
     Ok(())
 }
 
@@ -273,10 +347,30 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     let header = parse_market_state(&market_account.data)?;
     let mode = match header.mode { 0 => "Continuous", 1 => "Asynchronous", 2 => "Hybrid", _ => "Unknown" };
 
+    let (maker_book_pda, _) = MakerBook::get_address(&market, &keypair.pubkey());
+    let registered = match check_registry(&rpc, &market, &maker_book_pda).await {
+        Some(true) => "yes",
+        Some(false) => "NO (book not in registry)",
+        None => "n/a (no registry)",
+    };
+    let delegate = if book.delegate == Pubkey::default() {
+        "none".to_string()
+    } else {
+        book.delegate.to_string()
+    };
+    let status = match book.status { 1 => "Active", 2 => "Suspended", _ => "Unknown" };
+
     println!("=== Archer Market Maker Status ===");
     println!("Market:       {market}");
     println!("Maker:        {}", keypair.pubkey());
+    println!("Book PDA:     {maker_book_pda}");
     println!("Mode:         {mode}");
+    println!("Book kind:    {}", book.kind_str());
+    println!("Book status:  {status}");
+    println!("Registered:   {registered}");
+    println!("Delegate:     {delegate}");
+    println!("Sync spread:  {} ticks", book.sync_spread_ticks);
+    println!("Expiry slots: {}", book.expiry_in_slots);
     println!("Mid ticks:    {}", book.mid_price_ticks);
     println!("Bid levels:   {}", active_bid_levels(&book));
     println!("Ask levels:   {}", active_ask_levels(&book));

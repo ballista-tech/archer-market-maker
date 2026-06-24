@@ -6,8 +6,18 @@ pub const PROGRAM_ID: Pubkey =
 
 pub const MAKER_BOOK_DISCRIMINATOR: [u8; 8] = *b"ACHRMKR1";
 pub const MARKET_STATE_DISCRIMINATOR: [u8; 8] = *b"ACHRMKT1";
+pub const MAKER_REGISTRY_DISCRIMINATOR: [u8; 8] = *b"ACHRREG1";
 pub const MAKER_BOOK_SEED: &[u8] = b"maker";
+pub const MAKER_REGISTRY_SEED: &[u8] = b"maker_registry";
 pub const MAX_LEVELS: usize = 16;
+pub const MAX_REGISTRY_MAKERS: usize = 64;
+
+/// MakerBook role discriminator (`MakerBook.kind`).
+/// `MM` (0) = standard market-maker book whose levels are signed offsets from a
+/// moving `mid_price_ticks`. `LO` (1) = limit-order book with `mid_price_ticks`
+/// pinned to 0, so each level's `price_offset_ticks` IS its absolute price tick.
+pub const MAKER_KIND_MM: u8 = 0;
+pub const MAKER_KIND_LO: u8 = 1;
 
 pub const IX_INITIALIZE_MAKER_BOOK: u8 = 6;
 pub const IX_UPDATE_BOOK: u8 = 7;
@@ -46,7 +56,11 @@ pub struct MakerBook {
     pub status: u8,
     pub maker_book_bump: u8,
     pub sync_spread_ticks: u16,
-    pub _status_padding: [u8; 4],
+    /// Role discriminator: `MAKER_KIND_MM` (0) or `MAKER_KIND_LO` (1). Carved
+    /// from the former 4-byte status padding, so books created before this
+    /// field existed read back as MM (zeroed padding).
+    pub kind: u8,
+    pub _status_padding: [u8; 3],
     pub last_updated_sequence_number: u64,
     pub total_bid_base_lots: u64,
     pub tick_conversion_num: u64,
@@ -73,6 +87,54 @@ impl MakerBook {
             .map_err(|e| anyhow::anyhow!("MakerBook bytemuck: {e}"))?;
         anyhow::ensure!(book.discriminator == MAKER_BOOK_DISCRIMINATOR, "Invalid MakerBook discriminator");
         Ok(book)
+    }
+
+    #[inline]
+    pub fn is_lo(&self) -> bool {
+        self.kind == MAKER_KIND_LO
+    }
+
+    pub fn kind_str(&self) -> &'static str {
+        match self.kind {
+            MAKER_KIND_MM => "MM",
+            MAKER_KIND_LO => "LO",
+            _ => "Unknown",
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+pub struct MakerRegistry {
+    pub discriminator: [u8; 8],
+    pub market: Pubkey,
+    pub admin: Pubkey,
+    pub num_makers: u8,
+    pub _padding: [u8; 7],
+    pub makers: [Pubkey; MAX_REGISTRY_MAKERS],
+}
+
+impl MakerRegistry {
+    pub fn get_address(market: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[MAKER_REGISTRY_SEED, market.as_ref()], &PROGRAM_ID)
+    }
+
+    pub fn load(data: &[u8]) -> anyhow::Result<&Self> {
+        let size = std::mem::size_of::<Self>();
+        anyhow::ensure!(data.len() >= size, "MakerRegistry data too short: {} < {size}", data.len());
+        let registry: &Self = bytemuck::try_from_bytes(&data[..size])
+            .map_err(|e| anyhow::anyhow!("MakerRegistry bytemuck: {e}"))?;
+        anyhow::ensure!(
+            registry.discriminator == MAKER_REGISTRY_DISCRIMINATOR,
+            "Invalid MakerRegistry discriminator"
+        );
+        Ok(registry)
+    }
+
+    pub fn contains(&self, maker_book: &Pubkey) -> bool {
+        self.makers[..self.num_makers as usize]
+            .iter()
+            .any(|m| m == maker_book)
     }
 }
 

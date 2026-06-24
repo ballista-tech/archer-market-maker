@@ -26,6 +26,13 @@ pub struct SharedState {
     pub clear_book_sends: AtomicU64,
     pub heartbeat_sends: AtomicU64,
 
+    /// MakerFillEvent stream metrics (populated by the fills subscriber).
+    pub fills_count: AtomicU64,
+    pub fill_base_lots: AtomicU64,
+    pub fill_quote_lots: AtomicU64,
+    /// Number of times inventory was refreshed from an on-chain book account update.
+    pub book_resyncs: AtomicU64,
+
     pub engine_alive: AtomicBool,
 }
 
@@ -48,6 +55,10 @@ impl SharedState {
             book_updates: AtomicU64::new(0),
             clear_book_sends: AtomicU64::new(0),
             heartbeat_sends: AtomicU64::new(0),
+            fills_count: AtomicU64::new(0),
+            fill_base_lots: AtomicU64::new(0),
+            fill_quote_lots: AtomicU64::new(0),
+            book_resyncs: AtomicU64::new(0),
             engine_alive: AtomicBool::new(false),
         }
     }

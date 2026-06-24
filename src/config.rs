@@ -21,6 +21,10 @@ pub enum Cli {
     Init {
         #[arg(short, long, default_value = "config/default.toml")]
         config: PathBuf,
+        /// Book kind: "mm" (market-maker, default) or "lo" (limit-order).
+        /// Init-only and immutable thereafter.
+        #[arg(long, default_value = "mm")]
+        kind: String,
     },
     /// Deposit tokens into your maker book
     Deposit {
@@ -53,6 +57,14 @@ pub enum Cli {
         #[arg(long)]
         slots: u64,
     },
+    /// Set (or clear) the delegate allowed to manage orders on your behalf
+    SetDelegate {
+        #[arg(short, long, default_value = "config/default.toml")]
+        config: PathBuf,
+        /// Delegate pubkey. Omit, or pass "clear"/"none", to remove the delegate.
+        #[arg(long)]
+        delegate: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -74,6 +86,10 @@ pub struct MarketSettings {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ConnectionSettings {
     pub rpc_url: String,
+    /// Optional websocket endpoint for fill/account subscriptions. When empty,
+    /// it is derived from `rpc_url` (https→wss, http→ws).
+    #[serde(default)]
+    pub ws_url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

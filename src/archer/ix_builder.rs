@@ -115,8 +115,10 @@ pub fn build_update_expiry_in_slots_ix(
     }
 }
 
-pub fn build_initialize_maker_book_ix(maker: &Pubkey, market: &Pubkey) -> Instruction {
+pub fn build_initialize_maker_book_ix(maker: &Pubkey, market: &Pubkey, kind: u8) -> Instruction {
     let (maker_book_pda, _) = MakerBook::get_address(market, maker);
+    // Instruction data: [disc, kind]. The program reads the optional kind byte
+    // (0 = MM, 1 = LO); passing it explicitly keeps the book type unambiguous.
     Instruction {
         program_id: PROGRAM_ID,
         accounts: vec![
@@ -125,7 +127,7 @@ pub fn build_initialize_maker_book_ix(maker: &Pubkey, market: &Pubkey) -> Instru
             AccountMeta::new_readonly(*market, false),
             AccountMeta::new_readonly(system_program::ID, false),
         ],
-        data: vec![IX_INITIALIZE_MAKER_BOOK],
+        data: vec![IX_INITIALIZE_MAKER_BOOK, kind],
     }
 }
 

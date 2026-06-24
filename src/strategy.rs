@@ -10,6 +10,8 @@ use crate::archer::{
 use crate::config::StrategySettings;
 
 pub enum QuoteDecision {
+    /// Nothing to send this cycle — the on-chain book already matches the target.
+    Noop,
     ClearBook,
     UpdateMidOnly { new_mid_ticks: u64 },
     UpdateFull {
@@ -20,11 +22,15 @@ pub enum QuoteDecision {
 
 pub struct Strategy {
     config: StrategySettings,
+    /// True when quoting a limit-order (LO) book. LO books can't cheaply shift
+    /// their mid, so every price move requires a full re-quote at absolute
+    /// price ticks rather than a `UpdateMidOnly`.
+    is_lo: bool,
 }
 
 impl Strategy {
-    pub fn new(config: &StrategySettings) -> Self {
-        Self { config: config.clone() }
+    pub fn new(config: &StrategySettings, is_lo: bool) -> Self {
+        Self { config: config.clone(), is_lo }
     }
 
     fn vol_multiplier(&self, volatility_bps: f64) -> f64 {
@@ -91,12 +97,28 @@ impl Strategy {
             return (QuoteDecision::ClearBook, tightest_spread);
         }
 
-        let new_hash = structure_hash(num_levels, &bid_sizes_q, &ask_sizes_q, tightest_spread);
+        // For LO books the absolute price level is part of the book structure
+        // (each level IS an absolute price), so fold the mid tick into the hash:
+        // any tick move must trigger a full re-quote. MM books deliberately
+        // exclude it, since a price move is handled by the cheap mid shift.
+        let price_anchor = if self.is_lo {
+            price_to_ticks(mid_price, sdk_config).unwrap_or(0)
+        } else {
+            0
+        };
+        let new_hash = structure_hash(num_levels, &bid_sizes_q, &ask_sizes_q, tightest_spread, price_anchor);
 
         if new_hash == last_structure_hash && last_structure_hash != 0 {
-            let decision = match price_to_ticks(mid_price, sdk_config) {
-                Ok(new_mid_ticks) => QuoteDecision::UpdateMidOnly { new_mid_ticks },
-                Err(_) => QuoteDecision::ClearBook,
+            // Nothing changed. MM books can cheaply re-pin their mid to the
+            // latest price; LO books have an immutable mid, so there is nothing
+            // to send.
+            let decision = if self.is_lo {
+                QuoteDecision::Noop
+            } else {
+                match price_to_ticks(mid_price, sdk_config) {
+                    Ok(new_mid_ticks) => QuoteDecision::UpdateMidOnly { new_mid_ticks },
+                    Err(_) => QuoteDecision::ClearBook,
+                }
             };
             (decision, tightest_spread)
         } else {
@@ -117,7 +139,7 @@ impl Strategy {
                 quotes = quotes.with_ask(a.price, a.size);
             }
 
-            let decision = match build_book_update(&quotes, reference_mid_ticks, sdk_config) {
+            let decision = match build_book_update(&quotes, reference_mid_ticks, sdk_config, self.is_lo) {
                 Ok(book_update) => QuoteDecision::UpdateFull {
                     book_update,
                     structure_hash: new_hash,
@@ -136,7 +158,13 @@ fn quantize(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
-fn structure_hash(num_levels: usize, bid_sizes_q: &[u64], ask_sizes_q: &[u64], spread_bps: f64) -> u64 {
+fn structure_hash(
+    num_levels: usize,
+    bid_sizes_q: &[u64],
+    ask_sizes_q: &[u64],
+    spread_bps: f64,
+    price_anchor: u64,
+) -> u64 {
     let mut h: u64 = num_levels as u64;
     for &s in bid_sizes_q {
         h = h.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(s);
@@ -145,5 +173,7 @@ fn structure_hash(num_levels: usize, bid_sizes_q: &[u64], ask_sizes_q: &[u64], s
         h = h.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(s.wrapping_add(1));
     }
     h = h.wrapping_mul(6_364_136_223_846_793_005).wrapping_add((spread_bps * 10.0).round() as u64);
+    // Zero for MM books (price excluded), the mid tick for LO books.
+    h = h.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(price_anchor);
     h
 }

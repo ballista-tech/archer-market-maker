@@ -9,6 +9,7 @@ license = "Apache-2.0"
 # Solana
 solana-sdk = "2.3.0"
 solana-client = "2.3.0"
+solana-account-decoder = "2.3.0"
 
 # Zero-copy deserialization of on-chain accounts
 bytemuck = { version = "1.24", features = ["derive"] }
@@ -25,6 +26,9 @@ futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+
+# Base64 decoding of on-chain `Program data:` event logs
+base64 = "0.22"
 
 # Atomics (AtomicF64)
 portable-atomic = { version = "1", features = ["float"] }
