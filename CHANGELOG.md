@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2026-07-15]
 
 ### Added
+- **Price deviation circuit breaker.** New `[strategy].max_price_deviation_pct` (default `5.0`). Before sending a mid update, the engine withholds it if the new mid deviates more than this percent from the last on-chain mid (ticks are linear in price, so the tick ratio is the price deviation). Defends against bad feed ticks — e.g. a cold-start cross-rate glitch — that would otherwise quote a wildly mispriced book. Only applies with a real on-chain reference (fresh/LO books with mid 0, and a `0` config, disable it). Pairs with the cross-quote cold-start fix below.
+- **Cross-pricing cold-start fix.** `cross_bid`/`cross_ask` now initialize to `0.0` instead of `1.0`, so the existing `<= 0.0` readiness guard withholds quoting until a real cross tick arrives. Previously a primary tick landing before the first cross tick produced `primary / 1.0` — a price off by the entire cross rate.
 - **Delegated signing for `run`.** The market maker can now sign quote updates with a delegate keypair while quoting on an owner's book, so the owner (master) private key never has to live on the trading machine. Two new optional `[market]` fields: `delegate_keypair_path` (when set, `run` signs with it instead of the owner key) and `maker_owner_pubkey` (used to derive the maker book PDA when `maker_keypair_path` is left empty). The engine already separated the signer from the book owner; this wires the config through to it. Owner-only commands (`init`/`deposit`/`withdraw`/`set-delegate`) are unchanged and still require `maker_keypair_path`. Pair with the existing `set-delegate` command to authorize the delegate on-chain first.
 
 ## [2026-06-12]

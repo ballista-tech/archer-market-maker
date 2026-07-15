@@ -126,6 +126,8 @@ pub struct StrategySettings {
     pub vol_baseline_bps: f64,
     #[serde(default = "default_vol_max_multiplier")]
     pub vol_max_multiplier: f64,
+    #[serde(default = "default_max_price_deviation_pct")]
+    pub max_price_deviation_pct: f64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -174,6 +176,10 @@ fn validate_config(c: &MMConfig) -> Result<()> {
     anyhow::ensure!(c.strategy.vol_window >= 2, "vol_window must be >= 2");
     anyhow::ensure!(c.strategy.vol_baseline_bps > 0.0, "vol_baseline_bps must be positive");
     anyhow::ensure!(c.strategy.vol_max_multiplier >= 1.0, "vol_max_multiplier must be >= 1.0");
+    anyhow::ensure!(
+        c.strategy.max_price_deviation_pct >= 0.0,
+        "max_price_deviation_pct must be >= 0 (0 disables the check)"
+    );
     Ok(())
 }
 
@@ -183,6 +189,7 @@ fn default_inventory_pct() -> f64 { 80.0 }
 fn default_vol_window() -> usize { 300 }
 fn default_vol_baseline_bps() -> f64 { 5.0 }
 fn default_vol_max_multiplier() -> f64 { 5.0 }
+fn default_max_price_deviation_pct() -> f64 { 5.0 }
 fn default_heartbeat_ms() -> u64 { 100 }
 fn default_priority_fee() -> u64 { 100 }
 fn default_log_level() -> String { "info".into() }
