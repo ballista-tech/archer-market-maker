@@ -71,8 +71,8 @@ pub async fn run_feed(
 
     let mut primary_bid: f64 = 0.0;
     let mut primary_ask: f64 = 0.0;
-    let mut cross_bid: f64 = 1.0;
-    let mut cross_ask: f64 = 1.0;
+    let mut cross_bid: f64 = 0.0;
+    let mut cross_ask: f64 = 0.0;
 
     loop {
         if cancel.is_cancelled() {
