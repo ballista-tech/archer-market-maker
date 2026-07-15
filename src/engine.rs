@@ -123,6 +123,26 @@ pub async fn run_engine(
             volatility_bps,
         );
 
+        let max_dev_pct = mm_config.strategy.max_price_deviation_pct;
+        if max_dev_pct > 0.0 && cached_mid > 0 {
+            let candidate_mid_ticks = match &decision {
+                QuoteDecision::UpdateMidOnly { new_mid_ticks } => Some(*new_mid_ticks),
+                QuoteDecision::UpdateFull { book_update, .. } => Some(book_update.new_mid_price_ticks),
+                _ => None,
+            };
+            if let Some(new_ticks) = candidate_mid_ticks {
+                let dev_pct = (new_ticks as f64 - cached_mid as f64).abs() / cached_mid as f64 * 100.0;
+                if dev_pct > max_dev_pct {
+                    tracing::warn!(
+                        new_ticks, onchain_ticks = cached_mid, dev_pct, max_dev_pct,
+                        "Mid deviates beyond band — withholding update"
+                    );
+                    state.cycles_total.fetch_add(1, Relaxed);
+                    continue;
+                }
+            }
+        }
+
         match decision {
             QuoteDecision::Noop => {
                 state.cycles_total.fetch_add(1, Relaxed);

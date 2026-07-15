@@ -61,6 +61,11 @@ vol_baseline_bps = 5.0
 # Cap on how much volatility can widen spreads (e.g. 5.0 = max 5x base spreads).
 vol_max_multiplier = 5.0
 
+# Circuit breaker: reject a mid update whose price deviates more than this
+# percent from the last on-chain mid. Guards against bad feed ticks (e.g. a
+# cold-start cross-rate glitch). Set to 0 to disable.
+max_price_deviation_pct = 5.0
+
 [execution]
 # Heartbeat interval (milliseconds). The engine reacts instantly to price
 # changes from the WebSocket feed. If no price change occurs within this

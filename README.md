@@ -209,6 +209,7 @@ All settings in `config/default.toml`:
 | `strategy` | `vol_window` | `300` | Rolling window size (price samples) for volatility |
 | `strategy` | `vol_baseline_bps` | `5.0` | Per-sample vol (bps) at which spreads are unchanged |
 | `strategy` | `vol_max_multiplier` | `5.0` | Maximum spread multiplier from vol scaling |
+| `strategy` | `max_price_deviation_pct` | `5.0` | Circuit breaker: withhold a mid update that deviates more than this % from the last on-chain mid (`0` disables) |
 | `execution` | `heartbeat_interval_ms` | `100` | Max idle time before heartbeat update |
 | `execution` | `priority_fee_microlamports` | `100` | Solana priority fee |
 | `execution` | `shadow_mode` | `false` | Dry run mode |
