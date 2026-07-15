@@ -148,11 +148,45 @@ archer-market-maker <COMMAND>
   init        Initialize maker book on-chain (one-time)
   deposit     Deposit base + quote tokens
   withdraw    Withdraw all funds
-  kill        Emergency: clear all orders immediately
-  status      Print on-chain book state
-  set-expiry  Set expiry_in_slots (aggregator skips this book's quotes
-              once `current_slot - last_updated_slot >= expiry_in_slots`;
-              `--slots 0` disables the check)
+  kill         Emergency: clear all orders immediately
+  status       Print on-chain book state
+  set-expiry   Set expiry_in_slots (aggregator skips this book's quotes
+               once `current_slot - last_updated_slot >= expiry_in_slots`;
+               `--slots 0` disables the check)
+  set-delegate Authorize a delegate to manage orders on your behalf
+               (`--delegate <pubkey>`; omit or `--delegate clear` to revoke)
+```
+
+## Running with a delegate
+
+A **delegate** is a second keypair you authorize on-chain to manage orders on your maker book, so the market maker can sign quote updates without the owner (master) private key being present on the trading machine.
+
+1. **Authorize the delegate** (signed by the owner key — do this once, from a trusted machine):
+
+   ```bash
+   cargo run --release -- set-delegate --delegate <DELEGATE_PUBKEY>
+   ```
+
+2. **Run as the delegate.** On the remote/trading box, configure the delegate key and the owner's *pubkey* (not its private key):
+
+   ```toml
+   [market]
+   market_pubkey         = "YOUR_MARKET_PUBKEY"
+   delegate_keypair_path = "~/.config/solana/delegate.json"   # signs quote updates
+   maker_owner_pubkey    = "OWNER_PUBKEY"                      # book owner; key stays offline
+   # maker_keypair_path can be left empty here
+   ```
+
+   ```bash
+   cargo run --release -- run
+   ```
+
+`run` derives the maker book from the owner pubkey and signs with the delegate. If `maker_keypair_path` is present it is used as the owner instead, and a bare `maker_keypair_path` (no delegate) behaves exactly as before. Owner-only commands (`init`/`deposit`/`withdraw`/`set-delegate`) always require `maker_keypair_path` and ignore the delegate.
+
+To revoke:
+
+```bash
+cargo run --release -- set-delegate --delegate clear
 ```
 
 ## Configuration
@@ -162,7 +196,9 @@ All settings in `config/default.toml`:
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
 | `market` | `market_pubkey` | — | Archer market public key |
-| `market` | `maker_keypair_path` | — | Path to Solana keypair |
+| `market` | `maker_keypair_path` | — | Path to the maker (owner) Solana keypair. Required for owner-only ops (`init`/`deposit`/`withdraw`/`set-delegate`); optional for `run` when using a delegate (see [Running with a delegate](#running-with-a-delegate)) |
+| `market` | `delegate_keypair_path` | `""` | Optional delegate keypair. When set, `run` signs transactions with this key instead of the owner key |
+| `market` | `maker_owner_pubkey` | `""` | Owner pubkey used to derive the maker book when `maker_keypair_path` is empty (delegate-only run, owner key offline) |
 | `connection` | `rpc_url` | — | Solana RPC endpoint |
 | `feed` | `binance_symbol` | — | Binance symbol (e.g. `SOLUSDT`) |
 | `feed` | `cross_symbol` | `""` | Cross pair for synthetic pricing (e.g. `BTCUSDT`) |

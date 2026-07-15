@@ -80,7 +80,19 @@ pub struct MMConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct MarketSettings {
     pub market_pubkey: String,
+    /// Maker (owner) private key. Signs owner-only ops (init/deposit/withdraw/
+    /// set-delegate). Optional for `run` if you instead supply
+    /// `delegate_keypair_path` + `maker_owner_pubkey`, keeping the owner offline.
+    #[serde(default)]
     pub maker_keypair_path: String,
+    /// Optional delegate private key. When set, `run` signs with this key
+    /// instead of the owner key (see `set-delegate`).
+    #[serde(default)]
+    pub delegate_keypair_path: String,
+    /// Book-owner pubkey, used to derive the MakerBook PDA when
+    /// `maker_keypair_path` is empty. Ignored when the owner key is present.
+    #[serde(default)]
+    pub maker_owner_pubkey: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -143,7 +155,10 @@ pub fn load_config(path: &Path) -> Result<MMConfig> {
 
 fn validate_config(c: &MMConfig) -> Result<()> {
     anyhow::ensure!(!c.market.market_pubkey.is_empty(), "market_pubkey required");
-    anyhow::ensure!(!c.market.maker_keypair_path.is_empty(), "maker_keypair_path required");
+    anyhow::ensure!(
+        !c.market.maker_keypair_path.is_empty() || !c.market.maker_owner_pubkey.is_empty(),
+        "set maker_keypair_path, or maker_owner_pubkey (+ delegate_keypair_path) for a delegate-only run"
+    );
     anyhow::ensure!(!c.connection.rpc_url.is_empty(), "rpc_url required");
     anyhow::ensure!(!c.feed.binance_symbol.is_empty(), "binance_symbol required");
     anyhow::ensure!(!c.strategy.spread_levels_bps.is_empty(), "need at least 1 spread level");

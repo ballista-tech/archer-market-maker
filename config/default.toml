@@ -13,6 +13,15 @@
 market_pubkey = "u8tnfCb1JSSghuNFquQ2beStYgAN1kmd1f1Lhxbaec4"
 maker_keypair_path = "~/.config/solana/id.json"
 
+# --- Optional: run as a delegate (owner key stays offline) ---------------------
+# Authorize the delegate first (from a trusted machine, signed by the owner):
+#   archer-market-maker set-delegate --delegate <DELEGATE_PUBKEY>
+# Then on the trading box, set the delegate key + owner pubkey and leave
+# maker_keypair_path empty. `run` signs with the delegate and quotes on the
+# owner's book. Owner-only commands (init/deposit/withdraw) still need the owner key.
+# delegate_keypair_path = "~/.config/solana/delegate.json"
+# maker_owner_pubkey    = "OWNER_PUBKEY"
+
 [connection]
 rpc_url = "https://api.mainnet-beta.solana.com"
 

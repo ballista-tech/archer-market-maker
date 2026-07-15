@@ -5,6 +5,11 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-07-15]
+
+### Added
+- **Delegated signing for `run`.** The market maker can now sign quote updates with a delegate keypair while quoting on an owner's book, so the owner (master) private key never has to live on the trading machine. Two new optional `[market]` fields: `delegate_keypair_path` (when set, `run` signs with it instead of the owner key) and `maker_owner_pubkey` (used to derive the maker book PDA when `maker_keypair_path` is left empty). The engine already separated the signer from the book owner; this wires the config through to it. Owner-only commands (`init`/`deposit`/`withdraw`/`set-delegate`) are unchanged and still require `maker_keypair_path`. Pair with the existing `set-delegate` command to authorize the delegate on-chain first.
+
 ## [2026-06-12]
 
 ### Added

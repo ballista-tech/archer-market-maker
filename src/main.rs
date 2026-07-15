@@ -95,12 +95,16 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
         tracing::warn!("SHADOW MODE — no transactions will be sent");
     }
 
-    let maker_keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
-    let maker_pubkey = maker_keypair.pubkey();
-    let signer = Arc::new(maker_keypair);
+    let (signer_keypair, maker_pubkey) = resolve_run_identity(&mm_config.market)?;
+    let signer_pubkey = signer_keypair.pubkey();
+    let signer = Arc::new(signer_keypair);
     let market_pubkey: Pubkey = mm_config.market.market_pubkey.parse().context("Invalid market_pubkey")?;
 
-    tracing::info!(%market_pubkey, %maker_pubkey);
+    if maker_pubkey != signer_pubkey {
+        tracing::info!(%market_pubkey, %maker_pubkey, delegate = %signer_pubkey, "Running as delegate");
+    } else {
+        tracing::info!(%market_pubkey, %maker_pubkey);
+    }
 
     let rpc = Arc::new(solana_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
         mm_config.connection.rpc_url.clone(),
@@ -379,6 +383,29 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     println!("Quote free:   {:.4}", bal.quote_free);
     println!("Quote locked: {:.4}", bal.quote_locked);
     Ok(())
+}
+
+fn resolve_run_identity(m: &crate::config::MarketSettings) -> Result<(Keypair, Pubkey)> {
+    let owner_keypair = if m.maker_keypair_path.is_empty() {
+        None
+    } else {
+        Some(load_keypair(&m.maker_keypair_path)?)
+    };
+
+    let owner_pubkey = match (&owner_keypair, m.maker_owner_pubkey.is_empty()) {
+        (Some(kp), _) => kp.pubkey(),
+        (None, false) => m.maker_owner_pubkey.parse().context("Invalid maker_owner_pubkey")?,
+        (None, true) => anyhow::bail!("set maker_keypair_path or maker_owner_pubkey"),
+    };
+
+    let signer = if m.delegate_keypair_path.is_empty() {
+        owner_keypair
+            .ok_or_else(|| anyhow::anyhow!("no signer: set maker_keypair_path or delegate_keypair_path"))?
+    } else {
+        load_keypair(&m.delegate_keypair_path)?
+    };
+
+    Ok((signer, owner_pubkey))
 }
 
 fn load_keypair(path: &str) -> Result<Keypair> {
