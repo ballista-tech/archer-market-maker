@@ -17,7 +17,7 @@ use crate::archer::ix_builder::{
     build_set_book_delegate_ix, build_update_expiry_in_slots_ix, build_withdraw_ix,
 };
 use crate::archer::client::{ArcherClient, SendOptions};
-use crate::archer::types::{MakerBook, MakerRegistry, MAKER_KIND_LO, MAKER_KIND_MM};
+use crate::archer::types::{MakerBook, MakerRegistry, MarketStateHeader, MAKER_KIND_LO, MAKER_KIND_MM};
 use clap::Parser;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
@@ -25,7 +25,7 @@ use solana_sdk::signature::{Keypair, read_keypair_file};
 use solana_sdk::signer::Signer;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{Cli, load_config, resolve_path};
+use crate::config::{Cli, MarketsCommand, load_config, load_markets_context, resolve_path};
 use crate::state::SharedState;
 use crate::tx::TxSender;
 
@@ -64,6 +64,7 @@ async fn main() -> Result<()> {
         Cli::Status { config } => cmd_status(&config).await,
         Cli::SetExpiry { config, slots } => cmd_set_expiry(&config, slots).await,
         Cli::SetDelegate { config, delegate } => cmd_set_delegate(&config, delegate).await,
+        Cli::Markets { cmd } => cmd_markets(cmd).await,
     }
 }
 
@@ -382,6 +383,227 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     println!("Base locked:  {:.6}", bal.base_locked);
     println!("Quote free:   {:.4}", bal.quote_free);
     println!("Quote locked: {:.4}", bal.quote_locked);
+    Ok(())
+}
+
+async fn cmd_markets(cmd: MarketsCommand) -> Result<()> {
+    match cmd {
+        MarketsCommand::List { config, all } => cmd_markets_list(&config, all).await,
+        MarketsCommand::View { config, market } => cmd_markets_view(&config, market).await,
+    }
+}
+
+fn market_status_str(status: u8) -> &'static str {
+    match status {
+        0 => "Active",
+        1 => "Paused",
+        2 => "Closed",
+        _ => "Unknown",
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Align {
+    Left,
+    Right,
+}
+
+fn print_table(headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
+    let n = headers.len();
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            widths[i] = widths[i].max(cell.chars().count());
+        }
+    }
+
+    let rule = |left: &str, mid: &str, right: &str| {
+        let mut s = String::from(left);
+        for (i, w) in widths.iter().enumerate() {
+            s.push_str(&"─".repeat(w + 2));
+            s.push_str(if i + 1 == n { right } else { mid });
+        }
+        s
+    };
+
+    let print_row = |cells: &[String]| {
+        let mut s = String::from("│");
+        for (i, cell) in cells.iter().enumerate() {
+            let pad = widths[i] - cell.chars().count();
+            match aligns[i] {
+                Align::Left => s.push_str(&format!(" {}{} ", cell, " ".repeat(pad))),
+                Align::Right => s.push_str(&format!(" {}{} ", " ".repeat(pad), cell)),
+            }
+            s.push('│');
+        }
+        println!("{s}");
+    };
+
+    let print_spacer = || {
+        let mut s = String::from("│");
+        for w in &widths {
+            s.push_str(&" ".repeat(w + 2));
+            s.push('│');
+        }
+        println!("{s}");
+    };
+
+    println!("{}", rule("┌", "┬", "┐"));
+    print_row(&headers.iter().map(|h| h.to_string()).collect::<Vec<_>>());
+    println!("{}", rule("├", "┼", "┤"));
+    for (i, row) in rows.iter().enumerate() {
+        if i > 0 {
+            print_spacer();
+        }
+        print_row(row);
+    }
+    println!("{}", rule("└", "┴", "┘"));
+}
+
+async fn cmd_markets_list(config_path: &std::path::Path, all: bool) -> Result<()> {
+    let ctx = load_markets_context(config_path)?;
+    let client = ArcherClient::new(&ctx.rpc_url);
+    let mut markets = client.get_all_markets().await?;
+
+    if !all {
+        markets.retain(|(_, h)| h.status == 0);
+    }
+
+    if markets.is_empty() {
+        if all {
+            println!("No markets found on the Archer program.");
+        } else {
+            println!("No active markets found (use `--all` to include paused/closed).");
+        }
+        return Ok(());
+    }
+
+    markets.sort_by(|(a_pk, a), (b_pk, b)| {
+        a.status
+            .cmp(&b.status)
+            .then_with(|| a_pk.to_string().cmp(&b_pk.to_string()))
+    });
+
+    let mut mints: Vec<Pubkey> = markets
+        .iter()
+        .flat_map(|(_, h)| [h.base_mint, h.quote_mint])
+        .collect();
+    mints.sort();
+    mints.dedup();
+    let symbols = client.get_token_symbols(&mints).await;
+    let sym = |mint: &Pubkey| symbols.get(mint).map(String::as_str).unwrap_or("?");
+
+    let rows: Vec<Vec<String>> = markets
+        .iter()
+        .enumerate()
+        .map(|(i, (pubkey, h))| {
+            vec![
+                (i + 1).to_string(),
+                market_status_str(h.status).to_string(),
+                sym(&h.base_mint).to_string(),
+                sym(&h.quote_mint).to_string(),
+                format!("{:.2}", h.maker_fee_ppm as f64 / 100.0),
+                format!("{:.2}", h.taker_fee_ppm as f64 / 100.0),
+                pubkey.to_string(),
+                h.base_mint.to_string(),
+                h.quote_mint.to_string(),
+            ]
+        })
+        .collect();
+
+    println!("Found {} market(s):\n", markets.len());
+    print_table(
+        &[
+            "#", "Status", "Base", "Quote", "MkrBps", "TkrBps", "Market", "Base Token",
+            "Quote Token",
+        ],
+        &[
+            Align::Right, // #
+            Align::Left,  // Status
+            Align::Left,  // Base
+            Align::Left,  // Quote
+            Align::Right, // MkrBps
+            Align::Right, // TkrBps
+            Align::Left,  // Market
+            Align::Left,  // Base Token
+            Align::Left,  // Quote Token
+        ],
+        &rows,
+    );
+    println!("\nRun `markets view --market <pubkey>` for full details.");
+    Ok(())
+}
+
+async fn cmd_markets_view(config_path: &std::path::Path, market: Option<String>) -> Result<()> {
+    let ctx = load_markets_context(config_path)?;
+    let market_str = market
+        .or(ctx.default_market)
+        .context("no market given: pass --market <pubkey> or set market_pubkey in config")?;
+    let market: Pubkey = market_str.parse().context("Invalid market pubkey")?;
+
+    let client = ArcherClient::new(&ctx.rpc_url);
+    let cfg = client
+        .get_market_config(&market)
+        .await
+        .context("Failed to fetch market — is the pubkey a valid Archer market?")?;
+
+    let rpc = RpcClient::new(ctx.rpc_url.clone());
+    let account = rpc.get_account(&market).await.context("Failed to fetch market account")?;
+    let h: MarketStateHeader = *MarketStateHeader::load(&account.data)?;
+
+    let symbols = client.get_token_symbols(&[cfg.base_mint, cfg.quote_mint]).await;
+    let sym = |mint: &Pubkey| symbols.get(mint).map(String::as_str).unwrap_or("?");
+
+    println!("=== Market {market} ===");
+    println!("Status:       {}", market_status_str(h.status));
+    println!("Pair:         {} / {}", sym(&cfg.base_mint), sym(&cfg.quote_mint));
+    println!("Base mint:    {} ({}, {} decimals)", cfg.base_mint, sym(&cfg.base_mint), cfg.base_decimals);
+    println!("Quote mint:   {} ({}, {} decimals)", cfg.quote_mint, sym(&cfg.quote_mint), cfg.quote_decimals);
+    println!("Base vault:   {}", cfg.base_vault);
+    println!("Quote vault:  {}", cfg.quote_vault);
+    println!("Tick size:    {} quote atoms/base unit", cfg.tick_size_in_quote_atoms_per_base_unit);
+    println!("Base lot:     {} atoms", cfg.base_atoms_per_base_lot);
+    println!("Quote lot:    {} atoms", cfg.quote_atoms_per_quote_lot);
+    println!("Maker fee:    {} ppm ({:.2} bps)", h.maker_fee_ppm, h.maker_fee_ppm as f64 / 100.0);
+    println!("Taker fee:    {} ppm ({:.2} bps)", h.taker_fee_ppm, h.taker_fee_ppm as f64 / 100.0);
+
+    let books = client.get_maker_books_for_market(&market).await?;
+    let active = books.iter().filter(|b| b.status == 1).count();
+
+    let mut best_bid: Option<f64> = None;
+    let mut best_ask: Option<f64> = None;
+    let factor = cfg.ticks_to_price_factor();
+    for book in books.iter().filter(|b| b.status == 1) {
+        let mid = book.mid_price_ticks as i64;
+        for lvl in book.bid_levels.iter().filter(|l| l.size_in_base_lots > 0) {
+            let ticks = mid + lvl.price_offset_ticks;
+            if ticks > 0 {
+                let price = ticks as f64 * factor;
+                best_bid = Some(best_bid.map_or(price, |b| b.max(price)));
+            }
+        }
+        for lvl in book.ask_levels.iter().filter(|l| l.size_in_base_lots > 0) {
+            let ticks = mid + lvl.price_offset_ticks;
+            if ticks > 0 {
+                let price = ticks as f64 * factor;
+                best_ask = Some(best_ask.map_or(price, |a| a.min(price)));
+            }
+        }
+    }
+
+    println!("\n--- Liquidity ---");
+    println!("Maker books:  {} ({} active)", books.len(), active);
+    match (best_bid, best_ask) {
+        (Some(bid), Some(ask)) => {
+            let spread_bps = if ask > 0.0 { (ask - bid) / ask * 10_000.0 } else { 0.0 };
+            println!("Best bid:     {bid:.6}");
+            println!("Best ask:     {ask:.6}");
+            println!("Spread:       {spread_bps:.2} bps");
+        }
+        (Some(bid), None) => println!("Best bid:     {bid:.6}  (no asks)"),
+        (None, Some(ask)) => println!("Best ask:     {ask:.6}  (no bids)"),
+        (None, None) => println!("No live quotes on this market."),
+    }
     Ok(())
 }
 

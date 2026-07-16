@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-07-16]
+
+### Added
+- **`markets` CLI command.** Explore markets without a fully configured book:
+  - `markets list` fetches every `MarketState` on the Archer program (`getProgramAccounts` filtered by the `ACHRMKT1` discriminator) and renders a bordered, copy-paste-friendly table with on-chain token symbols, full mint addresses, and maker/taker fees. Shows **active markets only** by default; pass `--all` to include paused/closed. Rows are sorted active-first.
+  - `markets view [--market <pubkey>]` prints a single market's config (pair, mints + decimals, vaults, tick/lot sizes, fees) plus a live top-of-book (best bid/ask + spread) aggregated across all active maker books. Falls back to `market_pubkey` from the config when `--market` is omitted.
+  - Both commands only need `[connection].rpc_url` — a fresh user can list markets to discover a `market_pubkey` before setting up a keypair.
+- **On-chain token symbol resolution.** New `ArcherClient::get_token_symbols` resolves mint → symbol via Metaplex Token Metadata PDAs, falling back to the Token-2022 metadata extension on the mint itself (batched through `getMultipleAccounts`).
+
 ## [2026-07-15]
 
 ### Added

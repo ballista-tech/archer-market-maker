@@ -150,6 +150,9 @@ archer-market-maker <COMMAND>
   withdraw    Withdraw all funds
   kill         Emergency: clear all orders immediately
   status       Print on-chain book state
+  markets      Explore markets: `markets list` (all markets, active first,
+               with on-chain token symbols) or `markets view --market <pubkey>`
+               (one market's config + live top-of-book). Needs only `rpc_url`.
   set-expiry   Set expiry_in_slots (aggregator skips this book's quotes
                once `current_slot - last_updated_slot >= expiry_in_slots`;
                `--slots 0` disables the check)

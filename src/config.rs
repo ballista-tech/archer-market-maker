@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -64,6 +64,31 @@ pub enum Cli {
         /// Delegate pubkey. Omit, or pass "clear"/"none", to remove the delegate.
         #[arg(long)]
         delegate: Option<String>,
+    },
+    /// Explore Archer markets: list all, or view one in detail
+    Markets {
+        #[command(subcommand)]
+        cmd: MarketsCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MarketsCommand {
+    /// List markets on the Archer program (active only by default)
+    List {
+        #[arg(short, long, default_value = "config/default.toml")]
+        config: PathBuf,
+        /// Include paused/closed markets too (default: active only)
+        #[arg(long, default_value_t = false)]
+        all: bool,
+    },
+    /// View a single market's config and live top-of-book depth
+    View {
+        #[arg(short, long, default_value = "config/default.toml")]
+        config: PathBuf,
+        /// Market pubkey to view. Defaults to `market_pubkey` from the config.
+        #[arg(long)]
+        market: Option<String>,
     },
 }
 
@@ -153,6 +178,40 @@ pub fn load_config(path: &Path) -> Result<MMConfig> {
         toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
     validate_config(&config)?;
     Ok(config)
+}
+
+pub struct MarketsContext {
+    pub rpc_url: String,
+    pub default_market: Option<String>,
+}
+
+pub fn load_markets_context(path: &Path) -> Result<MarketsContext> {
+    #[derive(Deserialize)]
+    struct MarketPart {
+        #[serde(default)]
+        market_pubkey: String,
+    }
+    #[derive(Deserialize)]
+    struct Partial {
+        connection: ConnectionSettings,
+        #[serde(default)]
+        market: Option<MarketPart>,
+    }
+
+    let contents =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let p: Partial =
+        toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
+    anyhow::ensure!(!p.connection.rpc_url.is_empty(), "rpc_url required in config");
+
+    let default_market = p
+        .market
+        .map(|m| m.market_pubkey)
+        .filter(|s| !s.is_empty());
+    Ok(MarketsContext {
+        rpc_url: p.connection.rpc_url,
+        default_market,
+    })
 }
 
 fn validate_config(c: &MMConfig) -> Result<()> {
