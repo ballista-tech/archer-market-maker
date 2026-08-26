@@ -1,0 +1,16 @@
+{
+  "name": "archer-market-maker-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["ts"],
+  "scripts": {
+    "codegen": "node codegen.mjs"
+  },
+  "devDependencies": {
+    "@codama/nodes-from-anchor": "^1.5.5",
+    "@codama/renderers-js": "^2.4.0",
+    "@codama/visitors": "^1.10.2",
+    "codama": "^1.10.2"
+  }
+}

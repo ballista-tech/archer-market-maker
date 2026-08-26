@@ -21,3 +21,6 @@ terraform.tfvars
 *.tfstate.backup
 .terraform/
 .terraform.lock.hcl
+# TypeScript / Node
+node_modules/
+ts/dist/

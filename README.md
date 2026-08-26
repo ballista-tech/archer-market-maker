@@ -8,6 +8,10 @@ A simple market maker for the Archer Exchange.
 
 Places bid and ask orders on an Archer on-chain orderbook using Binance WebSocket prices as a reference, with optional cross-tick synthetic pricing. Designed to be **easy to understand** and **a starting point** for building your own strategy.
 
+## TypeScript port
+
+A TypeScript twin of this bot lives in [`ts/`](ts/) and exposes the same commands. It is built to stay in lockstep with the Rust bot: the on-chain contract layer (account layouts, instruction encoders, events) is **code-generated from the program IDL** at [`idl/archer_v1.json`](idl/archer_v1.json) via [`codegen.mjs`](codegen.mjs), and only the trading logic is hand-written. CI regenerates the bindings and fails if they drift from the IDL, so a program change stays in sync across both languages by regenerating rather than hand-mirroring. See [`ts/README.md`](ts/README.md) for setup and the sync workflow.
+
 ## How It Works
 
 The bot is **event-driven** — it reacts instantly to WebSocket price changes instead of polling:
