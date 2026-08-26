@@ -16,6 +16,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@iarna/toml": "^2.2.5",
+        "@solana-program/compute-budget": "^0.18.0",
         "@solana-program/token": "^0.16.0",
         "@solana-program/token-2022": "^0.16.0",
         "@solana/kit": "^8.0.0",
@@ -56,6 +57,8 @@
     "@noble/curves": ["@noble/curves@1.9.7", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw=="],
 
     "@noble/hashes": ["@noble/hashes@2.3.0", "", {}, "sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ=="],
+
+    "@solana-program/compute-budget": ["@solana-program/compute-budget@0.18.0", "", { "peerDependencies": { "@solana/kit": "^8.0.0" } }, "sha512-tmLtJ4mtxsmkj1QH5JQ9BphzMBgiCgRqb5chAiPlFEvyVaJ+UQfLRredVfaU2pTBR0sjnI31zIvz8VzgWu5IlQ=="],
 
     "@solana-program/record": ["@solana-program/record@0.4.0", "", { "dependencies": { "@solana-program/system": "^0.14.0" }, "peerDependencies": { "@solana/kit": "^8.0.0" } }, "sha512-d4HSGdfiY8TMJHprbw4Zo5ZI+FiMRrh7zJ9nrddAM59Qbp7Rl88wQdATedbs7cXqW8zE/VRHGYdajairqNrbYg=="],
 

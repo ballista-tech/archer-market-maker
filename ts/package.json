@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@solana-program/compute-budget": "^0.18.0",
     "@solana-program/token": "^0.16.0",
     "@solana-program/token-2022": "^0.16.0",
     "@solana/kit": "^8.0.0",
