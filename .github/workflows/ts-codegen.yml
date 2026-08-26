@@ -1,0 +1,27 @@
+name: TS codegen & parity
+
+on:
+  pull_request:
+    paths:
+      - "idl/**"
+      - "codegen.mjs"
+      - "ts/**"
+      - ".github/workflows/ts-codegen.yml"
+  push:
+    branches: [main]
+
+jobs:
+  codegen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install deps
+        run: bun install --frozen-lockfile
+      - name: Verify generated bindings match the IDL
+        run: bash scripts/check-codegen.sh
+      - name: Byte-parity tests (TS codecs vs Rust layouts)
+        run: bun test
+        working-directory: ts
