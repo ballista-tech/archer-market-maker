@@ -3,10 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "peerDependencies": {
-    "@solana/kit": "^8.0.0"
-  },
   "dependencies": {
-    "@solana/program-client-core": "^6.10.0"
+    "@solana/kit": "^8.0.0",
+    "@solana/program-client-core": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
