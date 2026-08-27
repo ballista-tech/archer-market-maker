@@ -119,7 +119,10 @@ export class TxSender {
     if (this.cache && nowMs() - this.cache.fetchedAt < BLOCKHASH_TTL_MS) {
       return this.cache.blockhash;
     }
-    const { value } = await this.rpc.getLatestBlockhash().send();
+    // Match tx.rs: fetch the blockhash at `processed` commitment.
+    const { value } = await this.rpc
+      .getLatestBlockhash({ commitment: "processed" })
+      .send();
     this.cache = { blockhash: value, fetchedAt: nowMs() };
     return value;
   }

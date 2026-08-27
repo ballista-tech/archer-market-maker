@@ -226,10 +226,17 @@ async function cmdMarketsView(
   const client = new ArcherClient(rpc);
   const cfg = await client.getMarketConfig(market);
 
+  const marketAcc = await rpc.getAccountInfo(market, { encoding: "base64" }).send();
+  if (!marketAcc.value) throw new Error("Failed to fetch market account");
+  const header = getMarketStateHeaderDecoder().decode(
+    new Uint8Array(base64Encoder.encode(marketAcc.value.data[0])),
+  );
+
   const symbols = await client.getTokenSymbols([cfg.baseMint, cfg.quoteMint]);
   const sym = (mint: Address) => symbols.get(mint) ?? "?";
 
   console.log(`=== Market ${market} ===`);
+  console.log(`Status:       ${marketStatusStr(header.status)}`);
   console.log(`Pair:         ${sym(cfg.baseMint)} / ${sym(cfg.quoteMint)}`);
   console.log(`Base mint:    ${cfg.baseMint} (${sym(cfg.baseMint)}, ${cfg.baseDecimals} decimals)`);
   console.log(`Quote mint:   ${cfg.quoteMint} (${sym(cfg.quoteMint)}, ${cfg.quoteDecimals} decimals)`);
@@ -288,13 +295,15 @@ async function cmdMarketsView(
 async function cmdStatus(configPath: string): Promise<void> {
   const cfg = loadConfig(configPath);
   const market = cfg.market.market_pubkey as Address;
-  // Owner pubkey: from the keypair path in a later phase; for read-only status
-  // we accept maker_owner_pubkey when the key isn't loaded here.
-  const maker = (cfg.market.maker_owner_pubkey || "") as Address;
-  if (!maker) {
-    throw new Error(
-      "status needs maker_owner_pubkey in config (keypair loading lands in a later phase)",
-    );
+  // Maker pubkey: from the loaded keypair (matching Rust), falling back to
+  // maker_owner_pubkey for a delegate-only config with no owner key.
+  let maker: Address;
+  if (cfg.market.maker_keypair_path) {
+    maker = (await loadKeypairSigner(cfg.market.maker_keypair_path)).address;
+  } else if (cfg.market.maker_owner_pubkey) {
+    maker = cfg.market.maker_owner_pubkey as Address;
+  } else {
+    throw new Error("set maker_keypair_path or maker_owner_pubkey");
   }
 
   const rpc = createSolanaRpc(cfg.connection.rpc_url);
