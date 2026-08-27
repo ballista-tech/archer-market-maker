@@ -8,6 +8,7 @@ import {
   getSignatureFromTransaction,
   pipe,
   sendAndConfirmTransactionFactory,
+  sendTransactionWithoutConfirmingFactory,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
@@ -82,4 +83,90 @@ export async function sendInstructions(
     TransactionWithBlockhashLifetime;
   await sendAndConfirm(sendable, { commitment: "confirmed" });
   return getSignatureFromTransaction(signed);
+}
+
+export enum TxPriority {
+  Normal,
+  Emergency,
+}
+
+const BLOCKHASH_TTL_MS = 2000;
+
+interface CachedBlockhash {
+  blockhash: Parameters<typeof setTransactionMessageLifetimeUsingBlockhash>[0];
+  fetchedAt: number;
+}
+
+// Fire-and-forget transaction sender for the engine (port of tx.rs TxSender).
+// fire() builds/signs/sends in the background without awaiting, caches the
+// blockhash for BLOCKHASH_TTL_MS, and tracks the shared consecutiveFailures
+// counter. Shadow mode skips the send entirely.
+export class TxSender {
+  private cache: CachedBlockhash | undefined;
+  private readonly send: ReturnType<typeof sendTransactionWithoutConfirmingFactory>;
+
+  constructor(
+    private readonly rpc: Rpc<SolanaRpcApi>,
+    private readonly signer: KeyPairSigner,
+    private readonly priorityFee: bigint,
+    private readonly shadowMode: boolean,
+    private readonly state: { consecutiveFailures: number },
+  ) {
+    this.send = sendTransactionWithoutConfirmingFactory({ rpc });
+  }
+
+  private async blockhash() {
+    if (this.cache && nowMs() - this.cache.fetchedAt < BLOCKHASH_TTL_MS) {
+      return this.cache.blockhash;
+    }
+    const { value } = await this.rpc.getLatestBlockhash().send();
+    this.cache = { blockhash: value, fetchedAt: nowMs() };
+    return value;
+  }
+
+  fire(instructions: Instruction[], priority: TxPriority, cuLimit: number): void {
+    if (this.shadowMode) {
+      return;
+    }
+    const fee =
+      priority === TxPriority.Emergency ? this.priorityFee * 10n : this.priorityFee;
+
+    void this.buildAndSend(instructions, fee, cuLimit).then(
+      () => {
+        this.state.consecutiveFailures = 0;
+      },
+      () => {
+        this.state.consecutiveFailures += 1;
+      },
+    );
+  }
+
+  private async buildAndSend(
+    instructions: Instruction[],
+    fee: bigint,
+    cuLimit: number,
+  ): Promise<void> {
+    const budgetIxs: Instruction[] = [
+      getSetComputeUnitLimitInstruction({ units: cuLimit }),
+      getSetComputeUnitPriceInstruction({ microLamports: fee }),
+    ];
+    const blockhash = await this.blockhash();
+    const message = pipe(
+      createTransactionMessage({ version: 0 }),
+      (m) => setTransactionMessageFeePayerSigner(this.signer, m),
+      (m) => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
+      (m) =>
+        appendTransactionMessageInstructions([...budgetIxs, ...instructions], m),
+    );
+    const signed = await signTransactionMessageWithSigners(message);
+    await this.send(signed as typeof signed & Transaction, {
+      commitment: "processed",
+      skipPreflight: true,
+      maxRetries: 0n,
+    });
+  }
+}
+
+function nowMs(): number {
+  return performance.timeOrigin + performance.now();
 }
