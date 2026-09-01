@@ -42,6 +42,22 @@ function patchIdl(idl) {
     initMaker.args = [{ name: "kind", type: "u8" }];
   }
 
+  // MakerDepositFunds (disc 11) / MakerWithdrawFunds (disc 12): the shank
+  // annotations mark base/quote vault accounts read-only, but the program moves
+  // tokens through them, so the transfers require them writable. archer-v1's own
+  // builders agree (program/src/instruction_builders/maker.rs:
+  // `AccountMeta::new(base_vault/quote_vault, ...)`), as does this repo's Rust
+  // bot (src/archer/ix_builder.rs). Without this the tx is rejected on-chain.
+  for (const disc of [11, 12]) {
+    const ix = idl.instructions.find((i) => i.discriminant?.value === disc);
+    for (const name of ["baseVaultAccount", "quoteVaultAccount"]) {
+      const acct = ix?.accounts.find((a) => a.name === name);
+      if (acct) {
+        acct.isMut = true;
+      }
+    }
+  }
+
   // The IDL's `constants` section redefines names Codama already generates from
   // the accounts (the per-account *_DISCRIMINATOR). Both would land in the
   // generated barrel and collide as ambiguous re-exports. Drop the redundant
