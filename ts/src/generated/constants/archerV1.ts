@@ -14,15 +14,7 @@ export const ARCHER_EXCHANGE_TREASURY: Address = address(
 
 export const ARCHER_PROTOCOL_FEE_PPM: bigint = 200000n;
 
-export const ASYNC_SWAP_DISCRIMINATOR: string = "ASYNCSWP";
-
 export const DEFAULT_CRANKER_FEE_PPM: number = 100;
-
-export const MAKER_BOOK_DISCRIMINATOR: string = "ACHRMKR1";
-
-export const MAKER_REGISTRY_DISCRIMINATOR: string = "ACHRREG1";
-
-export const MARKET_STATE_DISCRIMINATOR: string = "ACHRMKT1";
 
 export const MAX_CRANKER_FEE_PPM: number = 50000;
 

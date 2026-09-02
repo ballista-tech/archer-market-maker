@@ -41,6 +41,20 @@ function patchIdl(idl) {
   if (initMaker && (initMaker.args?.length ?? 0) === 0) {
     initMaker.args = [{ name: "kind", type: "u8" }];
   }
+
+  // The IDL's `constants` section redefines names Codama already generates from
+  // the accounts (the per-account *_DISCRIMINATOR). Both would land in the
+  // generated barrel and collide as ambiguous re-exports. Drop the redundant
+  // string constants; the typed account discriminators are the ones to use.
+  if (Array.isArray(idl.constants)) {
+    const collidingNames = new Set([
+      "MAKER_BOOK_DISCRIMINATOR",
+      "MARKET_STATE_DISCRIMINATOR",
+      "MAKER_REGISTRY_DISCRIMINATOR",
+      "ASYNC_SWAP_DISCRIMINATOR",
+    ]);
+    idl.constants = idl.constants.filter((c) => !collidingNames.has(c.name));
+  }
   return idl;
 }
 
