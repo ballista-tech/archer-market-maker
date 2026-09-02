@@ -3,16 +3,75 @@
 // These are safe to diff field-for-field against the Rust binary on the same
 // market. Write commands + `run` come in later phases.
 
-import { createSolanaRpc, getBase64Encoder, type Address } from "@solana/kit";
+import {
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  getBase64Encoder,
+  type Address,
+} from "@solana/kit";
+import { findAssociatedTokenPda } from "@solana-program/token";
 import { Command } from "commander";
 
 import { activeAskLevels, activeBidLevels, makerBalances } from "./archer/accounts";
 import { ArcherClient } from "./archer/client";
+import type { MarketConfig } from "./archer/marketConfig";
+import { baseAmountToLots, quoteAmountToLots } from "./archer/math";
 import { findMakerBookPda, findMakerRegistryPda } from "./archer/pda";
+import { getClearBookInstruction } from "./generated/instructions/clearBook";
+import { getInitializeMakerBookInstruction } from "./generated/instructions/initializeMakerBook";
+import { getMakerDepositFundsInstruction } from "./generated/instructions/makerDepositFunds";
+import { getMakerWithdrawFundsInstruction } from "./generated/instructions/makerWithdrawFunds";
+import { getSetBookDelegateInstruction } from "./generated/instructions/setBookDelegate";
+import { getUpdateExpiryInSlotsInstruction } from "./generated/instructions/updateExpiryInSlots";
 import { getMakerRegistryDecoder } from "./generated/accounts/makerRegistry";
 import { getMarketStateHeaderDecoder } from "./generated/accounts/marketStateHeader";
+import { loadKeypairSigner } from "./signer";
+import { sendInstructions, type TxClients } from "./tx";
 
 const base64Encoder = getBase64Encoder();
+
+const MAKER_KIND_MM = 0;
+const MAKER_KIND_LO = 1;
+const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
+
+function makeClients(rpcUrl: string): TxClients {
+  const wsUrl = rpcUrl.replace(/^http/, "ws");
+  return {
+    rpc: createSolanaRpc(rpcUrl),
+    rpcSubscriptions: createSolanaRpcSubscriptions(wsUrl),
+  };
+}
+
+function parseBookKind(kind: string): number {
+  switch (kind.toLowerCase()) {
+    case "mm":
+    case "maker":
+      return MAKER_KIND_MM;
+    case "lo":
+    case "limit":
+    case "limit-order":
+      return MAKER_KIND_LO;
+    default:
+      throw new Error(`invalid book kind '${kind}' (expected 'mm' or 'lo')`);
+  }
+}
+
+async function makerAtas(
+  owner: Address,
+  cfg: MarketConfig,
+): Promise<{ base: Address; quote: Address }> {
+  const [base] = await findAssociatedTokenPda({
+    owner,
+    mint: cfg.baseMint,
+    tokenProgram: cfg.baseTokenProgram,
+  });
+  const [quote] = await findAssociatedTokenPda({
+    owner,
+    mint: cfg.quoteMint,
+    tokenProgram: cfg.quoteTokenProgram,
+  });
+  return { base, quote };
+}
 import {
   loadConfig,
   loadMarketsContext,
@@ -279,6 +338,192 @@ async function cmdStatus(configPath: string): Promise<void> {
   console.log(`Quote locked: ${bal.quoteLocked.toFixed(4)}`);
 }
 
+async function cmdInit(configPath: string, kind: string): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const kindByte = parseBookKind(kind);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+
+  const ix = getInitializeMakerBookInstruction({
+    makerAccount: signer,
+    makerBookAccount: makerBookPda,
+    marketAccount: market,
+    systemProgram: SYSTEM_PROGRAM,
+    kind: kindByte,
+  });
+  const sig = await sendInstructions(
+    makeClients(cfg.connection.rpc_url),
+    signer,
+    [ix],
+  );
+  const label = kindByte === MAKER_KIND_LO ? "LO (limit-order)" : "MM (market-maker)";
+  console.log(`Maker book initialized [${label}]: ${sig}`);
+}
+
+async function cmdDeposit(
+  configPath: string,
+  base: number,
+  quote: number,
+): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const clients = makeClients(cfg.connection.rpc_url);
+  const client = new ArcherClient(clients.rpc);
+  const sdkConfig = await client.getMarketConfig(market);
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+  const atas = await makerAtas(signer.address, sdkConfig);
+
+  const baseLots = base > 0 ? baseAmountToLots(base, sdkConfig) : 0n;
+  const quoteLots = quote > 0 ? quoteAmountToLots(quote, sdkConfig) : 0n;
+
+  const ix = getMakerDepositFundsInstruction({
+    marketAccount: market,
+    makerBookAccount: makerBookPda,
+    makerAccount: signer,
+    baseMint: sdkConfig.baseMint,
+    quoteMint: sdkConfig.quoteMint,
+    baseVaultAccount: sdkConfig.baseVault,
+    quoteVaultAccount: sdkConfig.quoteVault,
+    makerBaseTokenAccount: atas.base,
+    makerQuoteTokenAccount: atas.quote,
+    baseTokenProgram: sdkConfig.baseTokenProgram,
+    quoteTokenProgram: sdkConfig.quoteTokenProgram,
+    baseLots,
+    quoteLots,
+  });
+  const sig = await sendInstructions(clients, signer, [ix]);
+  console.log(`Deposited ${base} base + ${quote} quote: ${sig}`);
+}
+
+async function cmdWithdraw(configPath: string): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const clients = makeClients(cfg.connection.rpc_url);
+  const client = new ArcherClient(clients.rpc);
+  const sdkConfig = await client.getMarketConfig(market);
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+  const book = await client.getMakerBook(market, signer.address);
+
+  const totalBase = book.baseFree + book.baseLocked;
+  const totalQuote = book.quoteFree + book.quoteLocked;
+  if (totalBase === 0n && totalQuote === 0n) {
+    console.log("Nothing to withdraw.");
+    return;
+  }
+  console.log(`  Base:  ${book.baseFree} free, ${book.baseLocked} locked`);
+  console.log(`  Quote: ${book.quoteFree} free, ${book.quoteLocked} locked`);
+
+  const instructions = [];
+  if (book.baseLocked > 0n || book.quoteLocked > 0n) {
+    console.log("  Locked funds detected — prepending ClearBook");
+    instructions.push(
+      getClearBookInstruction({
+        makerAccount: signer,
+        makerBookAccount: makerBookPda,
+        sequenceNumber: book.lastUpdatedSequenceNumber + 1n,
+      }),
+    );
+  }
+
+  const atas = await makerAtas(signer.address, sdkConfig);
+  const wb = book.baseLocked > 0n ? totalBase : book.baseFree;
+  const wq = book.quoteLocked > 0n ? totalQuote : book.quoteFree;
+
+  if (wb > 0n || wq > 0n) {
+    instructions.push(
+      getMakerWithdrawFundsInstruction({
+        marketAccount: market,
+        makerBookAccount: makerBookPda,
+        makerAccount: signer,
+        baseMint: sdkConfig.baseMint,
+        quoteMint: sdkConfig.quoteMint,
+        baseVaultAccount: sdkConfig.baseVault,
+        quoteVaultAccount: sdkConfig.quoteVault,
+        makerBaseTokenAccount: atas.base,
+        makerQuoteTokenAccount: atas.quote,
+        baseTokenProgram: sdkConfig.baseTokenProgram,
+        quoteTokenProgram: sdkConfig.quoteTokenProgram,
+        baseLots: wb,
+        quoteLots: wq,
+      }),
+    );
+  }
+  const sig = await sendInstructions(clients, signer, instructions);
+  console.log(`Withdrawn: ${sig}`);
+}
+
+async function cmdKill(configPath: string): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const clients = makeClients(cfg.connection.rpc_url);
+  const client = new ArcherClient(clients.rpc);
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+  const book = await client.getMakerBook(market, signer.address);
+
+  const ix = getClearBookInstruction({
+    makerAccount: signer,
+    makerBookAccount: makerBookPda,
+    sequenceNumber: book.lastUpdatedSequenceNumber + 1n,
+  });
+  const sig = await sendInstructions(clients, signer, [ix], {
+    priorityFeeMicroLamports: 500_000n,
+  });
+  console.log(`Book cleared: ${sig}`);
+}
+
+async function cmdSetDelegate(
+  configPath: string,
+  delegate: string | undefined,
+): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+
+  const lower = delegate?.toLowerCase();
+  const clear = !lower || lower === "clear" || lower === "none";
+  const delegateAddress = clear ? SYSTEM_PROGRAM : (delegate as Address);
+
+  const ix = getSetBookDelegateInstruction({
+    makerAccount: signer,
+    makerBookAccount: makerBookPda,
+    delegateAccount: delegateAddress,
+  });
+  const sig = await sendInstructions(
+    makeClients(cfg.connection.rpc_url),
+    signer,
+    [ix],
+  );
+  console.log(clear ? `Delegate cleared: ${sig}` : `Delegate set to ${delegateAddress}: ${sig}`);
+}
+
+async function cmdSetExpiry(configPath: string, slots: bigint): Promise<void> {
+  const cfg = loadConfig(configPath);
+  const signer = await loadKeypairSigner(cfg.market.maker_keypair_path);
+  const market = cfg.market.market_pubkey as Address;
+  const [makerBookPda] = await findMakerBookPda(market, signer.address);
+
+  const ix = getUpdateExpiryInSlotsInstruction({
+    authorityAccount: signer,
+    makerBookAccount: makerBookPda,
+    expiryInSlots: slots,
+  });
+  const sig = await sendInstructions(
+    makeClients(cfg.connection.rpc_url),
+    signer,
+    [ix],
+  );
+  console.log(
+    slots === 0n
+      ? `expiry_in_slots set to 0 (disabled): ${sig}`
+      : `expiry_in_slots set to ${slots}: ${sig}`,
+  );
+}
+
 const DEFAULT_CONFIG = "config/default.toml";
 
 const program = new Command();
@@ -302,6 +547,47 @@ program
   .command("status")
   .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
   .action((opts) => cmdStatus(resolvePath(opts.config)));
+
+program
+  .command("init")
+  .description("Initialize your maker book on-chain (one-time)")
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .option("--kind <kind>", "book kind: mm (default) or lo", "mm")
+  .action((opts) => cmdInit(resolvePath(opts.config), opts.kind));
+
+program
+  .command("deposit")
+  .description("Deposit tokens into your maker book")
+  .requiredOption("--base <amount>", "base amount", parseFloat)
+  .requiredOption("--quote <amount>", "quote amount", parseFloat)
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .action((opts) => cmdDeposit(resolvePath(opts.config), opts.base, opts.quote));
+
+program
+  .command("withdraw")
+  .description("Withdraw all funds from your maker book")
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .action((opts) => cmdWithdraw(resolvePath(opts.config)));
+
+program
+  .command("kill")
+  .description("Emergency: clear all orders immediately")
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .action((opts) => cmdKill(resolvePath(opts.config)));
+
+program
+  .command("set-delegate")
+  .description("Set (or clear) the delegate allowed to manage orders")
+  .option("--delegate <pubkey>", "delegate pubkey; omit or 'clear' to remove")
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .action((opts) => cmdSetDelegate(resolvePath(opts.config), opts.delegate));
+
+program
+  .command("set-expiry")
+  .description("Set the maker book's expiry_in_slots (0 disables)")
+  .requiredOption("--slots <n>", "expiry in slots", (v) => BigInt(v))
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .action((opts) => cmdSetExpiry(resolvePath(opts.config), opts.slots));
 
 program.parseAsync().catch((err) => {
   console.error(err instanceof Error ? err.message : err);

@@ -79,10 +79,10 @@ export type MakerWithdrawFundsInstruction<
         ? ReadonlyAccount<TAccountQuoteMint>
         : TAccountQuoteMint,
       TAccountBaseVaultAccount extends string
-        ? ReadonlyAccount<TAccountBaseVaultAccount>
+        ? WritableAccount<TAccountBaseVaultAccount>
         : TAccountBaseVaultAccount,
       TAccountQuoteVaultAccount extends string
-        ? ReadonlyAccount<TAccountQuoteVaultAccount>
+        ? WritableAccount<TAccountQuoteVaultAccount>
         : TAccountQuoteVaultAccount,
       TAccountMakerBaseTokenAccount extends string
         ? WritableAccount<TAccountMakerBaseTokenAccount>
@@ -239,11 +239,11 @@ export function getMakerWithdrawFundsInstruction<
     quoteMint: { value: input.quoteMint ?? null, isWritable: false },
     baseVaultAccount: {
       value: input.baseVaultAccount ?? null,
-      isWritable: false,
+      isWritable: true,
     },
     quoteVaultAccount: {
       value: input.quoteVaultAccount ?? null,
-      isWritable: false,
+      isWritable: true,
     },
     makerBaseTokenAccount: {
       value: input.makerBaseTokenAccount ?? null,
