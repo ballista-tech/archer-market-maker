@@ -1,0 +1,2881 @@
+{
+  "version": "0.1.0",
+  "name": "archer_v1",
+  "metadata": {
+    "address": "Archer8kgiavM61GyusMzaaS2ft5sALtNsD1HxkUPMhy"
+  },
+  "instructions": [
+    {
+      "name": "InitializeMarket",
+      "discriminant": {
+        "type": "u8",
+        "value": 0
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state PDA account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        },
+        {
+          "name": "baseMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token mint"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "baseVaultAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Base token vault PDA"
+        },
+        {
+          "name": "quoteVaultAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Quote token vault PDA"
+        },
+        {
+          "name": "payerAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Payer for rent"
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "System program"
+        },
+        {
+          "name": "baseTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token program"
+        },
+        {
+          "name": "quoteTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token program"
+        },
+        {
+          "name": "ataProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Associated token account program"
+        },
+        {
+          "name": "rentAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Rent sysvar"
+        }
+      ],
+      "args": [
+        {
+          "name": "initializeMarketParams",
+          "type": {
+            "defined": "InitializeMarketParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ChangeMarketStatus",
+      "discriminant": {
+        "type": "u8",
+        "value": 1
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "changeMarketStatusParams",
+          "type": {
+            "defined": "ChangeMarketStatusParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateAsyncDelaySlots",
+      "discriminant": {
+        "type": "u8",
+        "value": 2
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateAsyncDelaySlotsParams",
+          "type": {
+            "defined": "UpdateAsyncDelaySlotsParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateMakerFee",
+      "discriminant": {
+        "type": "u8",
+        "value": 3
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateMakerFeeParams",
+          "type": {
+            "defined": "UpdateMakerFeeParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateTakerFee",
+      "discriminant": {
+        "type": "u8",
+        "value": 4
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateTakerFeeParams",
+          "type": {
+            "defined": "UpdateTakerFeeParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "TransferAdmin",
+      "discriminant": {
+        "type": "u8",
+        "value": 5
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "currentAdminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Current market admin"
+        },
+        {
+          "name": "newAdminAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "New admin pubkey"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "InitializeMakerBook",
+      "discriminant": {
+        "type": "u8",
+        "value": 6
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Market maker pubkey"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker and corresponding market"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "System program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "UpdateBook",
+      "discriminant": {
+        "type": "u8",
+        "value": 7
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market maker or delegate pubkey"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateBookData",
+          "type": {
+            "defined": "UpdateBookData"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateMidPrice",
+      "discriminant": {
+        "type": "u8",
+        "value": 8
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market maker or delegate pubkey"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        }
+      ],
+      "args": [
+        {
+          "name": "sequenceNumber",
+          "type": "u64"
+        },
+        {
+          "name": "newMidPriceTicks",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "CloseMakerBook",
+      "discriminant": {
+        "type": "u8",
+        "value": 31
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Book owner; receives the rent refund"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA to close"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "ClearBook",
+      "discriminant": {
+        "type": "u8",
+        "value": 9
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market maker or delegate pubkey"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        }
+      ],
+      "args": [
+        {
+          "name": "sequenceNumber",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "SetBookDelegate",
+      "discriminant": {
+        "type": "u8",
+        "value": 10
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market maker pubkey"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        },
+        {
+          "name": "delegateAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "The delegate pubkey who can manage orders on behalf of the market maker. Set to Pubkey::default() for clearing the existing delegate."
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "MakerDepositFunds",
+      "discriminant": {
+        "type": "u8",
+        "value": 11
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        },
+        {
+          "name": "makerAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Market maker"
+        },
+        {
+          "name": "baseMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token mint"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "baseVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for base token"
+        },
+        {
+          "name": "quoteVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for quote token"
+        },
+        {
+          "name": "makerBaseTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Token account of the maker for base"
+        },
+        {
+          "name": "makerQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Token account of the maker for quote"
+        },
+        {
+          "name": "baseTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token program"
+        },
+        {
+          "name": "quoteTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token program"
+        }
+      ],
+      "args": [
+        {
+          "name": "makerDepositFundsParams",
+          "type": {
+            "defined": "MakerDepositFundsParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "MakerWithdrawFunds",
+      "discriminant": {
+        "type": "u8",
+        "value": 12
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        },
+        {
+          "name": "makerAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Market maker"
+        },
+        {
+          "name": "baseMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token mint"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "baseVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for base token"
+        },
+        {
+          "name": "quoteVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for quote token"
+        },
+        {
+          "name": "makerBaseTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Token account of the maker for base"
+        },
+        {
+          "name": "makerQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Token account of the maker for quote"
+        },
+        {
+          "name": "baseTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token program"
+        },
+        {
+          "name": "quoteTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token program"
+        }
+      ],
+      "args": [
+        {
+          "name": "makerWithdrawFundsParams",
+          "type": {
+            "defined": "MakerWithdrawFundsParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ToggleBookSuspension",
+      "discriminant": {
+        "type": "u8",
+        "value": 13
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA for market maker"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "CollectProtocolFee",
+      "discriminant": {
+        "type": "u8",
+        "value": 14
+      },
+      "accounts": [
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "quoteVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for quote token"
+        },
+        {
+          "name": "adminQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Token account of the admin for quote"
+        },
+        {
+          "name": "archerTreasury",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Archer Exchange's treasury account"
+        },
+        {
+          "name": "treasuryQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "The treasury's token account for quote token"
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Token program"
+        }
+      ],
+      "args": [
+        {
+          "name": "collectProtocolFeeParams",
+          "type": {
+            "defined": "CollectProtocolFeeParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Swap",
+      "discriminant": {
+        "type": "u8",
+        "value": 15
+      },
+      "accounts": [
+        {
+          "name": "taker",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Taker authority"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "integratorFeeWallet",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Quote token account receiving integrator fee share"
+        },
+        {
+          "name": "baseMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token mint"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "baseVault",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's base token vault PDA"
+        },
+        {
+          "name": "quoteVault",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's quote token vault PDA"
+        },
+        {
+          "name": "takerBaseTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's base token account"
+        },
+        {
+          "name": "takerQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's quote token account"
+        },
+        {
+          "name": "baseTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token program"
+        },
+        {
+          "name": "quoteTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token program"
+        }
+      ],
+      "args": [
+        {
+          "name": "swapParams",
+          "type": {
+            "defined": "SwapParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "InitializeAsyncSwap",
+      "discriminant": {
+        "type": "u8",
+        "value": 16
+      },
+      "accounts": [
+        {
+          "name": "taker",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Taker authority"
+        },
+        {
+          "name": "sponsor",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Sponsor who pays PDA rent"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "swapIdentifierAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Random keypair for PDA derivation"
+        },
+        {
+          "name": "asyncSwapAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "AsyncSwap PDA to initialize"
+        },
+        {
+          "name": "marketVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for input token"
+        },
+        {
+          "name": "tokenMintAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Input token mint"
+        },
+        {
+          "name": "takerTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's input token account"
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Token program"
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "System program"
+        }
+      ],
+      "args": [
+        {
+          "name": "asyncSwapParams",
+          "type": {
+            "defined": "AsyncSwapParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ExecuteAsyncSwap",
+      "discriminant": {
+        "type": "u8",
+        "value": 17
+      },
+      "accounts": [
+        {
+          "name": "executor",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Cranker who executes the swap"
+        },
+        {
+          "name": "taker",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Original taker"
+        },
+        {
+          "name": "sponsor",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Sponsor who paid PDA rent"
+        },
+        {
+          "name": "asyncSwapInfo",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "AsyncSwap PDA"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "baseMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token mint"
+        },
+        {
+          "name": "quoteMint",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token mint"
+        },
+        {
+          "name": "baseVault",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's base token vault PDA"
+        },
+        {
+          "name": "quoteVault",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's quote token vault PDA"
+        },
+        {
+          "name": "takerBaseTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's base token account"
+        },
+        {
+          "name": "takerQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's quote token account"
+        },
+        {
+          "name": "executorBaseTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Cranker's base token account"
+        },
+        {
+          "name": "executorQuoteTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Cranker's quote token account"
+        },
+        {
+          "name": "baseTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Base token program"
+        },
+        {
+          "name": "quoteTokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Quote token program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "CancelAsyncSwap",
+      "discriminant": {
+        "type": "u8",
+        "value": 18
+      },
+      "accounts": [
+        {
+          "name": "taker",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Original taker"
+        },
+        {
+          "name": "sponsor",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Sponsor who paid PDA rent"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "asyncSwapAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "AsyncSwap PDA to cancel"
+        },
+        {
+          "name": "marketVaultAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market's vault for escrowed token"
+        },
+        {
+          "name": "tokenMintAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Escrowed token mint"
+        },
+        {
+          "name": "takerTokenAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Taker's token account for refund"
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Token program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "UpgradeMarketMode",
+      "discriminant": {
+        "type": "u8",
+        "value": 24
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "upgradeMarketModeParams",
+          "type": {
+            "defined": "UpgradeMarketModeParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateSyncFeeMultiplier",
+      "discriminant": {
+        "type": "u8",
+        "value": 25
+      },
+      "accounts": [
+        {
+          "name": "marketAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin authority"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateSyncFeeMultiplierParams",
+          "type": {
+            "defined": "UpdateSyncFeeMultiplierParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UpdateSyncSpread",
+      "discriminant": {
+        "type": "u8",
+        "value": 26
+      },
+      "accounts": [
+        {
+          "name": "makerAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Maker (book owner or delegate)"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateSyncSpreadParams",
+          "type": {
+            "defined": "UpdateSyncSpreadParams"
+          }
+        }
+      ]
+    },
+    {
+      "name": "InitializeMakerRegistry",
+      "discriminant": {
+        "type": "u8",
+        "value": 27
+      },
+      "accounts": [
+        {
+          "name": "adminAccount",
+          "isMut": true,
+          "isSigner": true,
+          "desc": "Market admin (pays rent)"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "registryAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerRegistry PDA"
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "System program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "RegisterMaker",
+      "discriminant": {
+        "type": "u8",
+        "value": 28
+      },
+      "accounts": [
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "MakerBook PDA to register"
+        },
+        {
+          "name": "registryAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerRegistry PDA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "DeregisterMaker",
+      "discriminant": {
+        "type": "u8",
+        "value": 29
+      },
+      "accounts": [
+        {
+          "name": "adminAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Market admin"
+        },
+        {
+          "name": "marketAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "Market state account"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": false,
+          "isSigner": false,
+          "desc": "MakerBook PDA to deregister"
+        },
+        {
+          "name": "registryAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerRegistry PDA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "UpdateExpiryInSlots",
+      "discriminant": {
+        "type": "u8",
+        "value": 30
+      },
+      "accounts": [
+        {
+          "name": "authorityAccount",
+          "isMut": false,
+          "isSigner": true,
+          "desc": "Maker or delegate"
+        },
+        {
+          "name": "makerBookAccount",
+          "isMut": true,
+          "isSigner": false,
+          "desc": "MakerBook PDA"
+        }
+      ],
+      "args": [
+        {
+          "name": "updateExpiryInSlotsParams",
+          "type": {
+            "defined": "UpdateExpiryInSlotsParams"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MarketStateHeader",
+      "discriminator": [65, 67, 72, 82, 77, 75, 84, 49],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "discriminator",
+            "type": {
+              "array": ["u8", 8]
+            }
+          },
+          {
+            "name": "marketId",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "quoteMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseVault",
+            "type": "publicKey"
+          },
+          {
+            "name": "quoteVault",
+            "type": "publicKey"
+          },
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseAtomsPerBaseLot",
+            "type": "u64"
+          },
+          {
+            "name": "quoteAtomsPerQuoteLot",
+            "type": "u64"
+          },
+          {
+            "name": "tickSizeInQuoteAtomsPerBaseUnit",
+            "type": "u64"
+          },
+          {
+            "name": "rawBaseUnitsPerBaseUnit",
+            "type": "u64"
+          },
+          {
+            "name": "uncollectedFeesQuoteLots",
+            "type": "u64"
+          },
+          {
+            "name": "collectedFeesQuoteLots",
+            "type": "u64"
+          },
+          {
+            "name": "makerFeePpm",
+            "type": "i32"
+          },
+          {
+            "name": "takerFeePpm",
+            "type": "i32"
+          },
+          {
+            "name": "baseDecimals",
+            "type": "u8"
+          },
+          {
+            "name": "quoteDecimals",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "marketBump",
+            "type": "u8"
+          },
+          {
+            "name": "syncFeeMultiplier",
+            "type": "u8"
+          },
+          {
+            "name": "minAsyncDelaySlots",
+            "type": "u16"
+          },
+          {
+            "name": "maxAsyncDelaySlots",
+            "type": "u16"
+          },
+          {
+            "name": "reserved",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerBook",
+      "discriminator": [65, 67, 72, 82, 77, 75, 82, 49],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "discriminator",
+            "type": {
+              "array": ["u8", 8]
+            }
+          },
+          {
+            "name": "maker",
+            "type": "publicKey"
+          },
+          {
+            "name": "market",
+            "type": "publicKey"
+          },
+          {
+            "name": "delegate",
+            "type": "publicKey"
+          },
+          {
+            "name": "midPriceTicks",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDeltaPerTick",
+            "type": "u64"
+          },
+          {
+            "name": "minMidPriceTicks",
+            "type": "u64"
+          },
+          {
+            "name": "quoteLocked",
+            "type": "u64"
+          },
+          {
+            "name": "quoteFree",
+            "type": "u64"
+          },
+          {
+            "name": "baseLocked",
+            "type": "u64"
+          },
+          {
+            "name": "baseFree",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "makerBookBump",
+            "type": "u8"
+          },
+          {
+            "name": "syncSpreadTicks",
+            "type": "u16"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "statusPadding",
+            "type": {
+              "array": ["u8", 3]
+            }
+          },
+          {
+            "name": "lastUpdatedSequenceNumber",
+            "type": "u64"
+          },
+          {
+            "name": "totalBidBaseLots",
+            "type": "u64"
+          },
+          {
+            "name": "tickConversionNum",
+            "type": "u64"
+          },
+          {
+            "name": "tickConversionDen",
+            "type": "u64"
+          },
+          {
+            "name": "bidLevels",
+            "type": {
+              "array": [
+                {
+                  "defined": "MakerLevel"
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "askLevels",
+            "type": {
+              "array": [
+                {
+                  "defined": "MakerLevel"
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "lastUpdatedSlot",
+            "type": "u64"
+          },
+          {
+            "name": "expiryInSlots",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": ["u64", 6]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AsyncSwap",
+      "discriminator": [65, 83, 89, 78, 67, 83, 87, 80],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "discriminator",
+            "type": {
+              "array": ["u8", 8]
+            }
+          },
+          {
+            "name": "owner",
+            "type": "publicKey"
+          },
+          {
+            "name": "sponsor",
+            "type": "publicKey"
+          },
+          {
+            "name": "market",
+            "type": "publicKey"
+          },
+          {
+            "name": "swapId",
+            "type": "publicKey"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "asyncSwapBump",
+            "type": "u8"
+          },
+          {
+            "name": "padding1",
+            "type": "u8"
+          },
+          {
+            "name": "crankerFeePpm",
+            "type": "u32"
+          },
+          {
+            "name": "creationSlot",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "threshold",
+            "type": "u64"
+          },
+          {
+            "name": "escrowedAtoms",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerRegistry",
+      "discriminator": [65, 67, 72, 82, 82, 69, 71, 49],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "discriminator",
+            "type": {
+              "array": ["u8", 8]
+            }
+          },
+          {
+            "name": "market",
+            "type": "publicKey"
+          },
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "numMakers",
+            "type": "u8"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": ["u8", 7]
+            }
+          },
+          {
+            "name": "makers",
+            "type": {
+              "array": ["publicKey", 64]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "InitializeMarketParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "marketId",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseTokenProgram",
+            "type": "publicKey"
+          },
+          {
+            "name": "quoteMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "quoteTokenProgram",
+            "type": "publicKey"
+          },
+          {
+            "name": "baseAtomsPerBaseLot",
+            "type": "u64"
+          },
+          {
+            "name": "quoteAtomsPerQuoteLot",
+            "type": "u64"
+          },
+          {
+            "name": "tickSizeInQuoteAtomsPerBaseUnit",
+            "type": "u64"
+          },
+          {
+            "name": "rawBaseUnitsPerBaseUnit",
+            "type": "u64"
+          },
+          {
+            "name": "baseDecimals",
+            "type": "u8"
+          },
+          {
+            "name": "quoteDecimals",
+            "type": "u8"
+          },
+          {
+            "name": "makerFeePpm",
+            "type": "i32"
+          },
+          {
+            "name": "takerFeePpm",
+            "type": "i32"
+          },
+          {
+            "name": "minAsyncDelaySlots",
+            "type": "u16"
+          },
+          {
+            "name": "maxAsyncDelaySlots",
+            "type": "u16"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "syncFeeMultiplier",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChangeMarketStatusParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "newStatus",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateAsyncDelaySlotsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minAsyncDelaySlots",
+            "type": "u16"
+          },
+          {
+            "name": "maxAsyncDelaySlots",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateMakerFeeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "makerFeePpm",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateTakerFeeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "takerFeePpm",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CollectProtocolFeeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "threshold",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AsyncSwapParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "threshold",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "crankerFeePpm",
+            "type": {
+              "option": "u32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerDepositFundsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseLots",
+            "type": "u64"
+          },
+          {
+            "name": "quoteLots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerWithdrawFundsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseLots",
+            "type": "u64"
+          },
+          {
+            "name": "quoteLots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateExpiryInSlotsParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "expiryInSlots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpgradeMarketModeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetMode",
+            "type": "u8"
+          },
+          {
+            "name": "syncFeeMultiplier",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateSyncFeeMultiplierParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "syncFeeMultiplier",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateSyncSpreadParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "syncSpreadTicks",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateBookData",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sequenceNumber",
+            "type": "u64"
+          },
+          {
+            "name": "midPriceTicks",
+            "type": "u64"
+          },
+          {
+            "name": "numBids",
+            "type": "u8"
+          },
+          {
+            "name": "numAsks",
+            "type": "u8"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": ["u8", 5]
+            }
+          },
+          {
+            "name": "levels",
+            "type": {
+              "array": [
+                {
+                  "defined": "MakerLevel"
+                },
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerLevel",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sizeInBaseLots",
+            "type": "u64"
+          },
+          {
+            "name": "priceOffsetTicks",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Paused"
+          },
+          {
+            "name": "Closed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketMode",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Continuous"
+          },
+          {
+            "name": "Asynchronous"
+          },
+          {
+            "name": "Hybrid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Side",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Bid"
+          },
+          {
+            "name": "Ask"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapMode",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "MaxAmountIn"
+          },
+          {
+            "name": "MinAmountOut"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MakerBookStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Suspended"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "SyncFillEvent",
+      "discriminator": "event:SyncFillEvent",
+      "fields": [
+        {
+          "name": "userWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "market",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "inputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "outputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "paramAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "paramThreshold",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "execInputSize",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "execOutputSize",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "integratorFeeWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "integratorFeeAtoms",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "AsyncSwapCreatedEvent",
+      "discriminator": "event:AsyncSwapCreatedEvent",
+      "fields": [
+        {
+          "name": "userWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "asyncSwapPda",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "market",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "inputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "outputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "paramAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "paramThreshold",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "AsyncFillEvent",
+      "discriminator": "event:AsyncFillEvent",
+      "fields": [
+        {
+          "name": "userWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "crankerWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "asyncSwapPda",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "market",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "inputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "outputMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "paramAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "paramThreshold",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "execInputSize",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "execOutputSize",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "crankerRewardSize",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "creationSlot",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "executionSlot",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "MakerFillEvent",
+      "discriminator": "event:MakerFillEvent",
+      "fields": [
+        {
+          "name": "makerIndex",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "absolutePriceTicks",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "priceOffsetTicks",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "baseLotsFilled",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "quoteLotsFilled",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "makerFee",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "sequenceNumber",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "LimitOrderPlacedEvent",
+      "discriminator": "event:LimitOrderPlacedEvent",
+      "fields": [
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "absolutePriceTicks",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "priceOffsetTicks",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "sizeLots",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "sequenceNumber",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "LimitOrderCanceledEvent",
+      "discriminator": "event:LimitOrderCanceledEvent",
+      "fields": [
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "absolutePriceTicks",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "priceOffsetTicks",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "prevSizeLots",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "sequenceNumber",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "LimitOrderResizedEvent",
+      "discriminator": "event:LimitOrderResizedEvent",
+      "fields": [
+        {
+          "name": "side",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "absolutePriceTicks",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "priceOffsetTicks",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "prevSizeLots",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "newSizeLots",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "sequenceNumber",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 0,
+      "name": "InvalidArcherTreasury",
+      "msg": "Invalid Archer treasury"
+    },
+    {
+      "code": 100,
+      "name": "InvalidParams",
+      "msg": "Invalid market parameters"
+    },
+    {
+      "code": 101,
+      "name": "MarketAlreadyInitialized",
+      "msg": "Market is already initialized"
+    },
+    {
+      "code": 102,
+      "name": "InvalidLotSize",
+      "msg": "Invalid lot size"
+    },
+    {
+      "code": 103,
+      "name": "InvalidTickSize",
+      "msg": "Invalid tick size"
+    },
+    {
+      "code": 104,
+      "name": "InvalidMarketMode",
+      "msg": "Invalid market mode"
+    },
+    {
+      "code": 105,
+      "name": "MarketModeNotContinuous",
+      "msg": "Market mode is not continuous"
+    },
+    {
+      "code": 106,
+      "name": "MarketModeNotAsynchronous",
+      "msg": "Market mode is not asynchronous"
+    },
+    {
+      "code": 107,
+      "name": "MarketNotActive",
+      "msg": "Market is not active"
+    },
+    {
+      "code": 108,
+      "name": "InvalidStatusTransition",
+      "msg": "Invalid status transition"
+    },
+    {
+      "code": 109,
+      "name": "MarketNotPaused",
+      "msg": "Market is not paused"
+    },
+    {
+      "code": 110,
+      "name": "InvalidSyncFeeMultiplier",
+      "msg": "Invalid sync fee multiplier (must be 1-7)"
+    },
+    {
+      "code": 111,
+      "name": "InvalidModeTransition",
+      "msg": "Invalid market mode transition"
+    },
+    {
+      "code": 112,
+      "name": "HybridRequiresPositiveTakerFee",
+      "msg": "Hybrid mode requires non-negative taker fee"
+    },
+    {
+      "code": 113,
+      "name": "AsyncDelayNotConfigured",
+      "msg": "Async delay not configured for hybrid/async mode"
+    },
+    {
+      "code": 200,
+      "name": "InvalidAccount",
+      "msg": "Invalid account"
+    },
+    {
+      "code": 201,
+      "name": "AccountNotWritable",
+      "msg": "Account is not writable"
+    },
+    {
+      "code": 202,
+      "name": "AccountNotSigner",
+      "msg": "Account is not a signer"
+    },
+    {
+      "code": 203,
+      "name": "InvalidPda",
+      "msg": "Invalid PDA derivation"
+    },
+    {
+      "code": 204,
+      "name": "AccountSizeMismatch",
+      "msg": "Account data size mismatch"
+    },
+    {
+      "code": 205,
+      "name": "InvalidAdmin",
+      "msg": "Invalid admin pubkey"
+    },
+    {
+      "code": 206,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 207,
+      "name": "InvalidMarketId",
+      "msg": "Invalid market ID"
+    },
+    {
+      "code": 208,
+      "name": "WrongOwner",
+      "msg": "Account has wrong owner"
+    },
+    {
+      "code": 209,
+      "name": "AccountNotExecutable",
+      "msg": "Account must be executable"
+    },
+    {
+      "code": 210,
+      "name": "InvalidDiscriminator",
+      "msg": "Invalid account discriminator"
+    },
+    {
+      "code": 211,
+      "name": "AccountNotInitialized",
+      "msg": "Account is not initialized"
+    },
+    {
+      "code": 212,
+      "name": "AccountAlreadyInitialized",
+      "msg": "Account is already initialized"
+    },
+    {
+      "code": 300,
+      "name": "InvalidMint",
+      "msg": "Invalid mint account"
+    },
+    {
+      "code": 301,
+      "name": "InvalidVault",
+      "msg": "Invalid vault account"
+    },
+    {
+      "code": 302,
+      "name": "InvalidVaultAddress",
+      "msg": "Invalid vault address"
+    },
+    {
+      "code": 303,
+      "name": "InvalidTokenAccount",
+      "msg": "Invalid token account"
+    },
+    {
+      "code": 304,
+      "name": "InvalidTokenProgram",
+      "msg": "Invalid token program"
+    },
+    {
+      "code": 305,
+      "name": "InvalidAssociatedTokenProgram",
+      "msg": "Invalid associated token program"
+    },
+    {
+      "code": 306,
+      "name": "InvalidSystemProgram",
+      "msg": "Invalid system program"
+    },
+    {
+      "code": 307,
+      "name": "InvalidRent",
+      "msg": "Invalid rent"
+    },
+    {
+      "code": 308,
+      "name": "UnsupportedMintExtension",
+      "msg": "Token-2022 mint carries an extension unsupported by Archer"
+    },
+    {
+      "code": 400,
+      "name": "ArithmeticOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 401,
+      "name": "ArithmeticUnderflow",
+      "msg": "Arithmetic underflow"
+    },
+    {
+      "code": 402,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 500,
+      "name": "InvalidMakerBook",
+      "msg": "Invalid maker book"
+    },
+    {
+      "code": 501,
+      "name": "MakerBookFrozen",
+      "msg": "Maker book cannot be updated"
+    },
+    {
+      "code": 502,
+      "name": "UnauthorizedMaker",
+      "msg": "Unauthorized market maker"
+    },
+    {
+      "code": 503,
+      "name": "InvalidPrice",
+      "msg": "Invalid price"
+    },
+    {
+      "code": 504,
+      "name": "InvalidOrderSequence",
+      "msg": "Invalid order sequence"
+    },
+    {
+      "code": 505,
+      "name": "CrossingOrderLevels",
+      "msg": "Crossing order book levels"
+    },
+    {
+      "code": 506,
+      "name": "InvalidSizeAtLevel",
+      "msg": "Invalid size at level"
+    },
+    {
+      "code": 507,
+      "name": "NoMatchingLiquidity",
+      "msg": "No liquidity levels found"
+    },
+    {
+      "code": 508,
+      "name": "TooManyMakerBooks",
+      "msg": "Too many maker books per swap"
+    },
+    {
+      "code": 509,
+      "name": "StaleSequenceNumber",
+      "msg": "Stale sequence number"
+    },
+    {
+      "code": 510,
+      "name": "MakerRegistryFull",
+      "msg": "Maker registry is full"
+    },
+    {
+      "code": 511,
+      "name": "MakerAlreadyRegistered",
+      "msg": "Maker already registered in registry"
+    },
+    {
+      "code": 512,
+      "name": "MakerNotRegistered",
+      "msg": "Maker not registered in registry"
+    },
+    {
+      "code": 513,
+      "name": "IncompleteMakerBooks",
+      "msg": "Incomplete maker books: not all registered makers provided"
+    },
+    {
+      "code": 514,
+      "name": "InvalidMakerRegistry",
+      "msg": "Invalid maker registry"
+    },
+    {
+      "code": 515,
+      "name": "MakerBookHasLockedBalance",
+      "msg": "Maker book has locked balances; quotes must be cleared before closing"
+    },
+    {
+      "code": 516,
+      "name": "MakerBookHasFreeBalance",
+      "msg": "Maker book has free balances; funds must be withdrawn before closing"
+    },
+    {
+      "code": 517,
+      "name": "MakerBookHasActiveLevels",
+      "msg": "Maker book has active levels; book must be cleared before closing"
+    },
+    {
+      "code": 518,
+      "name": "InvalidMakerKind",
+      "msg": "Invalid maker book kind (must be 0 = MM or 1 = LO)"
+    },
+    {
+      "code": 519,
+      "name": "MidPriceImmutableForLimitOrderBook",
+      "msg": "Mid price is immutable for a limit-order (LO) maker book; must stay 0"
+    },
+    {
+      "code": 520,
+      "name": "SyncSpreadNotAllowedForLimitOrderBook",
+      "msg": "Sync spread is not allowed for a limit-order (LO) maker book"
+    },
+    {
+      "code": 521,
+      "name": "DuplicateMakerBook",
+      "msg": "Duplicate maker book account supplied"
+    },
+    {
+      "code": 600,
+      "name": "InvalidFee",
+      "msg": "Invalid maker fee"
+    },
+    {
+      "code": 601,
+      "name": "InvalidFeeRecipient",
+      "msg": "Invalid fee recipient"
+    },
+    {
+      "code": 602,
+      "name": "FeeOverflow",
+      "msg": "Fee overflow"
+    },
+    {
+      "code": 603,
+      "name": "InsufficientProtocolFees",
+      "msg": "Insufficient protocol fees to cover rebates"
+    },
+    {
+      "code": 604,
+      "name": "CrankerFeeTooHigh",
+      "msg": "Cranker fee too high"
+    },
+    {
+      "code": 605,
+      "name": "CrankerFeeExceedsFill",
+      "msg": "Cranker fee exceeds fill quantity"
+    },
+    {
+      "code": 700,
+      "name": "InvalidSwapSide",
+      "msg": "Invalid swap side"
+    },
+    {
+      "code": 701,
+      "name": "InvalidSwapMode",
+      "msg": "Invalid swap mode"
+    },
+    {
+      "code": 702,
+      "name": "ZeroSwapAmount",
+      "msg": "Swap amount cannot be zero"
+    },
+    {
+      "code": 703,
+      "name": "SlippageToleranceExceeded",
+      "msg": "Slippage tolerance exceeded"
+    },
+    {
+      "code": 704,
+      "name": "QuoteOverflow",
+      "msg": "Quote overflow"
+    },
+    {
+      "code": 705,
+      "name": "PriceOverflow",
+      "msg": "Price overflow"
+    },
+    {
+      "code": 800,
+      "name": "AsyncSwapExecutedEarly",
+      "msg": "Asynchronous swap executed early"
+    },
+    {
+      "code": 801,
+      "name": "AsyncSwapExpired",
+      "msg": "Async swap expired: past max executable slot"
+    },
+    {
+      "code": 802,
+      "name": "AsyncSwapNotExpired",
+      "msg": "Async swap not expired"
+    },
+    {
+      "code": 803,
+      "name": "InvalidAsyncSwapOwner",
+      "msg": "Invalid owner for an async swap"
+    },
+    {
+      "code": 804,
+      "name": "InvalidThreshold",
+      "msg": "Invalid threshold for async swap"
+    },
+    {
+      "code": 805,
+      "name": "InsufficientEscrow",
+      "msg": "Insufficient escrowed funds for async swap execution"
+    },
+    {
+      "code": 806,
+      "name": "CpiNotAllowed",
+      "msg": "CPI into async swap execution is not allowed"
+    },
+    {
+      "code": 900,
+      "name": "FillExceedsMakerAvailable",
+      "msg": "Fill quantity exceeds maker available liquidity"
+    },
+    {
+      "code": 901,
+      "name": "ZeroFill",
+      "msg": "Fill produced zero output"
+    },
+    {
+      "code": 902,
+      "name": "PricePriorityViolated",
+      "msg": "Price priority ordering violated across levels"
+    },
+    {
+      "code": 903,
+      "name": "DustExceedsLevel",
+      "msg": "Pro-rata distribution exceeds available at level"
+    },
+    {
+      "code": 904,
+      "name": "FeeSolvencyViolated",
+      "msg": "Fee solvency violated: net protocol revenue is negative"
+    },
+    {
+      "code": 905,
+      "name": "TokenConservationViolated",
+      "msg": "Token conservation violated: vault balance mismatch"
+    },
+    {
+      "code": 906,
+      "name": "ZeroOutput",
+      "msg": "Swap produced zero output atoms from nonzero lot trade"
+    }
+  ],
+  "seeds": {
+    "MarketStateHeader": [
+      {
+        "kind": "const",
+        "type": "string",
+        "value": "market"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "market_id"
+      }
+    ],
+    "MakerBook": [
+      {
+        "kind": "const",
+        "type": "string",
+        "value": "maker"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "market"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "maker"
+      }
+    ],
+    "AsyncSwap": [
+      {
+        "kind": "const",
+        "type": "string",
+        "value": "async_swap"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "market"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "swap_id"
+      }
+    ],
+    "MakerRegistry": [
+      {
+        "kind": "const",
+        "type": "string",
+        "value": "maker_registry"
+      },
+      {
+        "kind": "account",
+        "type": "publicKey",
+        "path": "market"
+      }
+    ]
+  },
+  "constants": [
+    {
+      "name": "ARCHER_EXCHANGE_TREASURY",
+      "type": "publicKey",
+      "value": "ELGWUVJD6NBNLyJ5Xv98PzoSg9Wh2Y8Bwep9JZgm9nuo"
+    },
+    {
+      "name": "ARCHER_PROTOCOL_FEE_PPM",
+      "type": "u64",
+      "value": "200000"
+    },
+    {
+      "name": "PPM_DIVISOR",
+      "type": "u64",
+      "value": "1000000"
+    },
+    {
+      "name": "MIN_FEE_PPM",
+      "type": "i32",
+      "value": "-50000"
+    },
+    {
+      "name": "MAX_FEE_PPM",
+      "type": "i32",
+      "value": "100000"
+    },
+    {
+      "name": "DEFAULT_CRANKER_FEE_PPM",
+      "type": "u32",
+      "value": "100"
+    },
+    {
+      "name": "MAX_CRANKER_FEE_PPM",
+      "type": "u32",
+      "value": "50000"
+    },
+    {
+      "name": "MAX_LEVELS",
+      "type": "u32",
+      "value": "16"
+    },
+    {
+      "name": "MARKET_STATE_DISCRIMINATOR",
+      "type": "string",
+      "value": "ACHRMKT1"
+    },
+    {
+      "name": "MAKER_BOOK_DISCRIMINATOR",
+      "type": "string",
+      "value": "ACHRMKR1"
+    },
+    {
+      "name": "ASYNC_SWAP_DISCRIMINATOR",
+      "type": "string",
+      "value": "ASYNCSWP"
+    },
+    {
+      "name": "MAKER_REGISTRY_DISCRIMINATOR",
+      "type": "string",
+      "value": "ACHRREG1"
+    },
+    {
+      "name": "MAX_REGISTRY_MAKERS",
+      "type": "u32",
+      "value": "64"
+    }
+  ]
+}

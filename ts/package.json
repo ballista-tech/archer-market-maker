@@ -1,0 +1,12 @@
+{
+  "name": "archer-market-maker-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "@solana/kit": "^8.0.0"
+  },
+  "dependencies": {
+    "@solana/program-client-core": "^6.10.0"
+  }
+}
