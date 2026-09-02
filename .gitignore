@@ -24,3 +24,4 @@ terraform.tfvars
 # TypeScript / Node
 node_modules/
 ts/dist/
+ts/NOTES.md
