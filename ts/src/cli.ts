@@ -26,7 +26,11 @@ import { getUpdateExpiryInSlotsInstruction } from "./generated/instructions/upda
 import { getMakerRegistryDecoder } from "./generated/accounts/makerRegistry";
 import { getMarketStateHeaderDecoder } from "./generated/accounts/marketStateHeader";
 import { loadKeypairSigner } from "./signer";
-import { sendInstructions, type TxClients } from "./tx";
+import { sendInstructions, TxSender, type TxClients } from "./tx";
+import { SharedState } from "./state";
+import { runFeed } from "./feed";
+import { runFills } from "./fills";
+import { runEngine } from "./engine";
 
 const base64Encoder = getBase64Encoder();
 
@@ -222,10 +226,17 @@ async function cmdMarketsView(
   const client = new ArcherClient(rpc);
   const cfg = await client.getMarketConfig(market);
 
+  const marketAcc = await rpc.getAccountInfo(market, { encoding: "base64" }).send();
+  if (!marketAcc.value) throw new Error("Failed to fetch market account");
+  const header = getMarketStateHeaderDecoder().decode(
+    new Uint8Array(base64Encoder.encode(marketAcc.value.data[0])),
+  );
+
   const symbols = await client.getTokenSymbols([cfg.baseMint, cfg.quoteMint]);
   const sym = (mint: Address) => symbols.get(mint) ?? "?";
 
   console.log(`=== Market ${market} ===`);
+  console.log(`Status:       ${marketStatusStr(header.status)}`);
   console.log(`Pair:         ${sym(cfg.baseMint)} / ${sym(cfg.quoteMint)}`);
   console.log(`Base mint:    ${cfg.baseMint} (${sym(cfg.baseMint)}, ${cfg.baseDecimals} decimals)`);
   console.log(`Quote mint:   ${cfg.quoteMint} (${sym(cfg.quoteMint)}, ${cfg.quoteDecimals} decimals)`);
@@ -284,13 +295,15 @@ async function cmdMarketsView(
 async function cmdStatus(configPath: string): Promise<void> {
   const cfg = loadConfig(configPath);
   const market = cfg.market.market_pubkey as Address;
-  // Owner pubkey: from the keypair path in a later phase; for read-only status
-  // we accept maker_owner_pubkey when the key isn't loaded here.
-  const maker = (cfg.market.maker_owner_pubkey || "") as Address;
-  if (!maker) {
-    throw new Error(
-      "status needs maker_owner_pubkey in config (keypair loading lands in a later phase)",
-    );
+  // Maker pubkey: from the loaded keypair (matching Rust), falling back to
+  // maker_owner_pubkey for a delegate-only config with no owner key.
+  let maker: Address;
+  if (cfg.market.maker_keypair_path) {
+    maker = (await loadKeypairSigner(cfg.market.maker_keypair_path)).address;
+  } else if (cfg.market.maker_owner_pubkey) {
+    maker = cfg.market.maker_owner_pubkey as Address;
+  } else {
+    throw new Error("set maker_keypair_path or maker_owner_pubkey");
   }
 
   const rpc = createSolanaRpc(cfg.connection.rpc_url);
@@ -524,12 +537,111 @@ async function cmdSetExpiry(configPath: string, slots: bigint): Promise<void> {
   );
 }
 
+async function cmdRun(configPath: string, shadow: boolean): Promise<void> {
+  const cfg = loadConfig(configPath);
+  if (shadow) cfg.execution.shadow_mode = true;
+  if (cfg.execution.shadow_mode) {
+    console.warn("SHADOW MODE — no transactions will be sent");
+  }
+
+  // Signing identity: owner key, or a delegate key + owner pubkey.
+  const ownerSigner = cfg.market.maker_keypair_path
+    ? await loadKeypairSigner(cfg.market.maker_keypair_path)
+    : undefined;
+  const makerPubkey = (
+    ownerSigner
+      ? ownerSigner.address
+      : cfg.market.maker_owner_pubkey || throwErr("set maker_keypair_path or maker_owner_pubkey")
+  ) as Address;
+  const signer = cfg.market.delegate_keypair_path
+    ? await loadKeypairSigner(cfg.market.delegate_keypair_path)
+    : (ownerSigner ?? throwErr("no signer: set maker_keypair_path or delegate_keypair_path"));
+
+  const market = cfg.market.market_pubkey as Address;
+  const clients = makeClients(cfg.connection.rpc_url);
+  const client = new ArcherClient(clients.rpc);
+  const sdkConfig = await client.getMarketConfig(market);
+  console.log(`MarketConfig loaded: base=${sdkConfig.baseMint} quote=${sdkConfig.quoteMint}`);
+
+  const initialBook = await client.getMakerBook(market, makerPubkey);
+  const isLo = initialBook.kind === MAKER_KIND_LO;
+  console.log(`Maker book loaded (kind=${kindStr(initialBook.kind)})`);
+
+  const state = new SharedState();
+  state.cachedMidTicks = initialBook.midPriceTicks;
+  state.onchainSequenceNumber = initialBook.lastUpdatedSequenceNumber;
+  state.baseTotalLots = initialBook.baseFree + initialBook.baseLocked;
+  state.quoteTotalLots = initialBook.quoteFree + initialBook.quoteLocked;
+
+  const txSender = new TxSender(
+    clients.rpc,
+    signer,
+    BigInt(cfg.execution.priority_fee_microlamports),
+    cfg.execution.shadow_mode,
+    state,
+  );
+
+  const controller = new AbortController();
+  const { signal } = controller;
+  const [makerBookPda] = await findMakerBookPda(market, makerPubkey);
+
+  void runFeed(state, cfg.feed, cfg.strategy.vol_window, signal);
+  void runFills(state, sdkConfig, clients.rpcSubscriptions, makerBookPda, signal);
+
+  console.log("Waiting for price feed...");
+  let waited = 0;
+  while (state.midPrice <= 0) {
+    await new Promise((r) => setTimeout(r, 100));
+    waited += 100;
+    if (waited > 15_000) throw new Error("Price feed did not connect within 15 seconds");
+  }
+  console.log(`Price feed connected (price=${state.midPrice})`);
+
+  const enginePromise = runEngine({
+    state,
+    sdkConfig,
+    mmConfig: cfg,
+    signer,
+    makerPubkey,
+    marketPubkey: market,
+    txSender,
+    initialSequenceNumber: initialBook.lastUpdatedSequenceNumber,
+    isLo,
+    signal,
+  });
+
+  console.log("Engine running. Press Ctrl+C to stop.");
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => {
+      console.log("Shutting down");
+      controller.abort();
+      resolve();
+    });
+  });
+  await Promise.race([
+    enginePromise,
+    new Promise((r) => setTimeout(r, 5000)),
+  ]);
+  console.log("Stopped");
+}
+
+function throwErr(msg: string): never {
+  throw new Error(msg);
+}
+
 const DEFAULT_CONFIG = "config/default.toml";
 
 const program = new Command();
 program
   .name("archer-market-maker")
   .description("A simple market maker for Archer Exchange on Solana");
+
+program
+  .command("run")
+  .description("Start the market maker")
+  .option("-c, --config <path>", "config file", DEFAULT_CONFIG)
+  .option("--shadow", "compute quotes but don't send transactions", false)
+  .action((opts) => cmdRun(resolvePath(opts.config), opts.shadow));
 
 const markets = program.command("markets").description("Explore Archer markets");
 markets

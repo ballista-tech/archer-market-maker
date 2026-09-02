@@ -264,7 +264,9 @@ function readBorshString(
   const end = start + len;
   if (end > data.length) return undefined;
   const raw = new TextDecoder().decode(data.subarray(start, end));
-  const trimmed = raw.replace(/\0+/g, "").trim();
+  // Trim NUL bytes from the ends only (matching Rust trim_matches('\0')), then
+  // trim surrounding whitespace.
+  const trimmed = raw.replace(/^\0+|\0+$/g, "").trim();
   return [trimmed, end];
 }
 
