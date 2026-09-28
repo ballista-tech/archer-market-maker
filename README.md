@@ -89,7 +89,7 @@ Solana transactions cost compute units. The bot detects what changed since last 
 
 | Instruction | CU Cost | When |
 |-------------|---------|------|
-| `UpdateMidPrice` | ~400 | Price moved but level structure unchanged (most cycles) |
+| `UpdateMidPrice` | ~100 | Price moved but level structure unchanged (most cycles). The bot passes the Clock sysvar, taking the v2 fast path |
 | `UpdateBook` | ~5,000 | Level sizes or count changed |
 | `ClearBook` | ~180 | Shutdown, error, or stale feed |
 

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - *Sequence numbers are a bounded counter* (`last < seq <= last + 65535`). The engine already derived them from the book; it now also carries forward the last number a two-instruction update used, so the cycle after a mid move is no longer sent with a stale number.
   - *Deferred quote rebalancing.* `UpdateMidPrice` no longer moves `quote_locked`/`quote_free` and can no longer fail on balance; a book repriced beyond its free quote is silently skipped by the matching engine instead. `status` now reports the pending reprice and whether the book is fillable, `run` warns when the book becomes unfundable, and all balance displays use the SDK's projected balances.
   - *Market modes and the per-book sync spread are gone.* `status` no longer prints `Mode` or `Sync spread`.
+  - *`UpdateMidPrice` passes the Clock sysvar*, taking the v2 fast path (~89 CUs).
   - *New `Frozen` market status* is recognised in `markets list`, `markets view` and `status`.
 - `markets view` top-of-book now counts only books the matching engine would fill (active, unexpired, fundable), the same filter the program applies.
 - `withdraw` sends exact lot amounts instead of round-tripping through floats, and clears the book first whenever a reprice is pending.

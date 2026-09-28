@@ -75,16 +75,14 @@ pub fn update_mid_price_ix(
     new_mid_price_ticks: u64,
     sequence_number: u64,
 ) -> Instruction {
-    let mut ix = create_update_mid_price_instruction(
+    create_update_mid_price_instruction(
         MakerIdentity::Wallet(authority.signer),
         authority.book_pda(market),
         UpdateMidPriceParams {
             new_mid_price_ticks: Ticks::new(new_mid_price_ticks),
             sequence_number,
         },
-    );
-    ix.accounts.truncate(2);
-    ix
+    )
 }
 
 pub fn clear_book_ix(authority: &BookAuthority, market: &Pubkey, sequence_number: u64) -> Instruction {
@@ -223,10 +221,11 @@ mod tests {
     }
 
     #[test]
-    fn update_mid_price_uses_the_two_account_layout() {
+    fn update_mid_price_uses_the_fast_path_layout() {
         let authority = BookAuthority::owner(Pubkey::new_unique());
         let ix = update_mid_price_ix(&authority, &Pubkey::new_unique(), 7, 3);
-        assert_eq!(ix.accounts.len(), 2, "no Clock sysvar: stay off the fast path");
+        assert_eq!(ix.accounts.len(), 3, "[signer, book, clock]: the program's fast path");
+        assert_eq!(ix.accounts[2].pubkey, solana_sdk::sysvar::clock::ID);
         assert_eq!(ix.data.len(), 17);
         assert_eq!(u64::from_le_bytes(ix.data[1..9].try_into().unwrap()), 3);
         assert_eq!(u64::from_le_bytes(ix.data[9..17].try_into().unwrap()), 7);
