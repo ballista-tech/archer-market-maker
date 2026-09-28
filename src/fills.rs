@@ -2,8 +2,14 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Duration;
 
+use archer_sdk::accounts::parse_maker_book;
+use archer_sdk::config::MarketConfig;
+use archer_sdk::math::lots::{base_lots_to_amount, quote_lots_to_amount};
+use archer_sdk::onchain::ArcherUnit;
+use archer_sdk::onchain::events::{MAKER_FILL_DISC, MakerFillEvent};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use borsh::BorshDeserialize;
 use futures_util::StreamExt;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding};
 use solana_client::nonblocking::pubsub_client::PubsubClient;
@@ -15,54 +21,14 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use tokio_util::sync::CancellationToken;
 
-use crate::archer::config::MarketConfig;
-use crate::archer::math::{base_lots_to_amount, quote_lots_to_amount};
-use crate::archer::types::MakerBook;
 use crate::state::SharedState;
 
-/// sha256("event:MakerFillEvent")[..8] — the first 8 bytes of the matching
-/// `Program data:` log line. Must stay in sync with `MAKER_FILL_DISC` in the
-/// on-chain program (`program/src/events.rs`).
-const MAKER_FILL_DISC: [u8; 8] = [60, 14, 66, 1, 204, 202, 42, 161];
-
-/// Serialized body length: u8 + u8 + u64 + i64 + u64 + u64 + i64 + u64 = 50.
-const MAKER_FILL_BODY_LEN: usize = 50;
-
-/// A decoded `MakerFillEvent` from the program's log stream.
-#[derive(Debug, Clone, Copy)]
-pub struct MakerFillEvent {
-    /// Index of the filled book within the swap's maker-book account list.
-    /// Cannot be mapped back to a pubkey from logs alone — see `handle_logs`.
-    pub maker_index: u8,
-    /// 0 = bid fill (maker buys base), 1 = ask fill (maker sells base).
-    pub side: u8,
-    pub absolute_price_ticks: u64,
-    pub price_offset_ticks: i64,
-    pub base_lots_filled: u64,
-    pub quote_lots_filled: u64,
-    pub maker_fee: i64,
-    pub sequence_number: u64,
-}
-
-impl MakerFillEvent {
-    /// Decode a `disc || borsh(body)` blob. Returns `None` unless the
-    /// discriminator matches and the body is fully present.
-    fn decode(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 8 + MAKER_FILL_BODY_LEN || buf[..8] != MAKER_FILL_DISC {
-            return None;
-        }
-        let b = &buf[8..];
-        Some(Self {
-            maker_index: b[0],
-            side: b[1],
-            absolute_price_ticks: u64::from_le_bytes(b[2..10].try_into().ok()?),
-            price_offset_ticks: i64::from_le_bytes(b[10..18].try_into().ok()?),
-            base_lots_filled: u64::from_le_bytes(b[18..26].try_into().ok()?),
-            quote_lots_filled: u64::from_le_bytes(b[26..34].try_into().ok()?),
-            maker_fee: i64::from_le_bytes(b[34..42].try_into().ok()?),
-            sequence_number: u64::from_le_bytes(b[42..50].try_into().ok()?),
-        })
+/// Decode a `disc || borsh(body)` blob from a `Program data:` log line.
+fn decode_fill(buf: &[u8]) -> Option<MakerFillEvent> {
+    if buf.len() < 8 || buf[..8] != MAKER_FILL_DISC {
+        return None;
     }
+    MakerFillEvent::try_from_slice(&buf[8..]).ok()
 }
 
 /// Derive the websocket endpoint from an HTTP(S) RPC URL.
@@ -143,7 +109,7 @@ async fn run_once(
                 None => anyhow::bail!("logs stream closed"),
             },
             msg = acct_stream.next() => match msg {
-                Some(resp) => handle_account(state, &resp.value.data),
+                Some(resp) => handle_account(state, sdk_config, &resp.value.data),
                 None => anyhow::bail!("account stream closed"),
             },
         }
@@ -162,7 +128,7 @@ fn handle_logs(state: &SharedState, sdk_config: &MarketConfig, resp: &RpcLogsRes
         let Ok(bytes) = BASE64.decode(b64.trim()) else {
             continue;
         };
-        if let Some(ev) = MakerFillEvent::decode(&bytes) {
+        if let Some(ev) = decode_fill(&bytes) {
             record_fill(state, sdk_config, &ev, &resp.signature);
         }
     }
@@ -201,7 +167,7 @@ fn record_fill(
     );
 }
 
-fn handle_account(state: &SharedState, data: &UiAccountData) {
+fn handle_account(state: &SharedState, sdk_config: &MarketConfig, data: &UiAccountData) {
     let bytes = match data {
         UiAccountData::Binary(b64, _) => BASE64.decode(b64).ok(),
         UiAccountData::LegacyBinary(b64) => BASE64.decode(b64).ok(),
@@ -210,20 +176,36 @@ fn handle_account(state: &SharedState, data: &UiAccountData) {
     let Some(bytes) = bytes else {
         return;
     };
-    match MakerBook::load(&bytes) {
+    match parse_maker_book(&bytes) {
         Ok(book) => {
             state
                 .base_total_lots
-                .store(book.base_free + book.base_locked, Relaxed);
+                .store(book.base_free.as_u64() + book.base_locked.as_u64(), Relaxed);
             state
                 .quote_total_lots
-                .store(book.quote_free + book.quote_locked, Relaxed);
+                .store(book.quote_free.as_u64() + book.quote_locked.as_u64(), Relaxed);
             state.cached_mid_ticks.store(book.mid_price_ticks, Relaxed);
             // Only ever move the sequence forward; out-of-order ws frames are possible.
             state
                 .onchain_sequence_number
                 .fetch_max(book.last_updated_sequence_number, Relaxed);
             state.book_resyncs.fetch_add(1, Relaxed);
+
+            // `UpdateMidPrice` no longer validates the maker's balance. If the
+            // mid has moved further than the free quote can back, the program
+            // skips this book in every swap until it is deposited to or
+            // repriced back — nothing reverts, so this is the only signal.
+            let unfundable = !book.is_quote_sync_fundable(sdk_config.maker_fee_ppm);
+            let was_unfundable = state.quote_unfundable.swap(unfundable, Relaxed);
+            if unfundable && !was_unfundable {
+                tracing::warn!(
+                    mid_ticks = book.mid_price_ticks,
+                    mid_at_last_sync = book.mid_at_last_sync,
+                    "Book cannot fund its pending reprice — the aggregator is skipping it. Deposit quote or reprice back within balance."
+                );
+            } else if !unfundable && was_unfundable {
+                tracing::info!("Book is fundable again");
+            }
         }
         Err(e) => tracing::warn!("book account decode failed: {e}"),
     }

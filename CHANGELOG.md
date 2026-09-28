@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-09-28]
+
+### Changed
+- **On-chain layer moved to [`archer-sdk`](https://github.com/ballista-tech/archer-sdk).** The bot no longer declares its own account layouts, discriminators, instruction encoders or tick/lot math. `src/archer/types.rs`, `ix_builder.rs`, `accounts.rs`, `config.rs` and `math.rs` are gone; `src/archer/` is now just `client.rs` (SDK client + market scan, token symbols, confirmed send) and `quote.rs` (MM/LO book construction and delegate-signed quoting instructions). A program change now reaches this bot by bumping the `archer-sdk` rev in `Cargo.toml`, not by hand-mirroring bytes.
+- **Ready for the v2 program upgrade.** The v2 program keeps every account layout byte-identical, so no migration is needed, but it changes behaviour the bot relied on:
+  - *Sequence numbers are a bounded counter* (`last < seq <= last + 65535`). The engine already derived them from the book; it now also carries forward the last number a two-instruction update used, so the cycle after a mid move is no longer sent with a stale number.
+  - *Deferred quote rebalancing.* `UpdateMidPrice` no longer moves `quote_locked`/`quote_free` and can no longer fail on balance; a book repriced beyond its free quote is silently skipped by the matching engine instead. `status` now reports the pending reprice and whether the book is fillable, `run` warns when the book becomes unfundable, and all balance displays use the SDK's projected balances.
+  - *Market modes and the per-book sync spread are gone.* `status` no longer prints `Mode` or `Sync spread`.
+  - *New `Frozen` market status* is recognised in `markets list`, `markets view` and `status`.
+- `markets view` top-of-book now counts only books the matching engine would fill (active, unexpired, fundable), the same filter the program applies.
+- `withdraw` sends exact lot amounts instead of round-tripping through floats, and clears the book first whenever a reprice is pending.
+- `run` refuses books owned by an ArcherAccount (the v2 delegated-identity PDA); this bot drives wallet-owned books, optionally through a delegate key.
+
 ## [2026-07-16]
 
 ### Added

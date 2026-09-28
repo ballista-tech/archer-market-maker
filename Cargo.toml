@@ -1,18 +1,19 @@
 [package]
 name = "archer-market-maker"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A simple market maker for the Archer Exchange on Solana"
 license = "Apache-2.0"
 
 [dependencies]
+archer-sdk = { git = "https://github.com/ballista-tech/archer-sdk", rev = "fa6128d1f2a6adc8518b043d855b3f04b3f36c31", features = ["client"] }
+
 # Solana
 solana-sdk = "2.3.0"
 solana-client = "2.3.0"
 solana-account-decoder = "2.3.0"
 
-# Zero-copy deserialization of on-chain accounts
-bytemuck = { version = "1.24", features = ["derive"] }
+borsh = "1.5"
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }

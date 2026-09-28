@@ -11,46 +11,29 @@ mod volatility;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use crate::archer::accounts::{maker_balances, parse_market_state, active_bid_levels, active_ask_levels};
-use crate::archer::ix_builder::{
-    build_clear_book_ix, build_deposit_ix, build_initialize_maker_book_ix,
-    build_set_book_delegate_ix, build_update_expiry_in_slots_ix, build_withdraw_ix,
+use archer_sdk::accounts::{active_ask_levels, active_bid_levels, maker_balances};
+use archer_sdk::config::MarketConfig;
+use archer_sdk::ix_builder::maker::{
+    build_deposit_ix, build_initialize_maker_book_ix, build_set_delegate_ix,
+    build_update_expiry_in_slots_ix,
 };
-use crate::archer::client::{ArcherClient, SendOptions};
-use crate::archer::types::{MakerBook, MakerRegistry, MarketStateHeader, MAKER_KIND_LO, MAKER_KIND_MM};
+use archer_sdk::onchain::builders::create_maker_withdraw_funds_instruction;
+use archer_sdk::onchain::{
+    ArcherUnit, BaseLots, MAKER_KIND_LO, MAKER_KIND_MM, MakerBook, MakerBookStatus,
+    MakerWithdrawFundsParams, MarketStatus, QuoteLots,
+};
+use archer_sdk::pda::derive_maker_book;
 use clap::Parser;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, read_keypair_file};
 use solana_sdk::signer::Signer;
 use tokio_util::sync::CancellationToken;
 
+use crate::archer::client::{ArcherClient, SendOptions};
+use crate::archer::quote::{BookAuthority, clear_book_ix};
 use crate::config::{Cli, MarketsCommand, load_config, load_markets_context, resolve_path};
 use crate::state::SharedState;
 use crate::tx::TxSender;
-
-async fn detect_token_program(rpc: &RpcClient, mint: &Pubkey) -> Result<Pubkey> {
-    let account = rpc
-        .get_account(mint)
-        .await
-        .with_context(|| format!("Failed to fetch mint account {mint}"))?;
-    if account.owner == spl_token::id() {
-        Ok(spl_token::id())
-    } else if account.owner == spl_token_2022::id() {
-        Ok(spl_token_2022::id())
-    } else {
-        anyhow::bail!("Mint {mint} owned by unknown program {}", account.owner)
-    }
-}
-
-struct TokenPrograms { base: Pubkey, quote: Pubkey }
-
-async fn resolve_token_programs(rpc: &RpcClient, base_mint: &Pubkey, quote_mint: &Pubkey) -> Result<TokenPrograms> {
-    Ok(TokenPrograms {
-        base: detect_token_program(rpc, base_mint).await?,
-        quote: detect_token_program(rpc, quote_mint).await?,
-    })
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,13 +59,58 @@ fn parse_book_kind(kind: &str) -> Result<u8> {
     }
 }
 
+fn kind_str(kind: u8) -> &'static str {
+    match kind {
+        MAKER_KIND_MM => "MM",
+        MAKER_KIND_LO => "LO",
+        _ => "Unknown",
+    }
+}
+
+fn market_status_str(status: u8) -> &'static str {
+    match MarketStatus::from_u8(status) {
+        Ok(MarketStatus::Active) => "Active",
+        Ok(MarketStatus::Paused) => "Paused",
+        Ok(MarketStatus::Closed) => "Closed",
+        Ok(MarketStatus::Frozen) => "Frozen",
+        Err(_) => "Unknown",
+    }
+}
+
+fn book_status_str(status: u8) -> &'static str {
+    match MakerBookStatus::from_u8(status) {
+        Ok(MakerBookStatus::Active) => "Active",
+        Ok(MakerBookStatus::Suspended) => "Suspended",
+        Err(_) => "Unknown",
+    }
+}
+
+/// Whether `UpdateMidPrice` has moved the mid since the quote balances were
+/// last settled. While pending, the raw `quote_locked` / `quote_free` fields
+/// describe the book at `mid_at_last_sync`, not at the current mid.
+fn has_pending_reprice(book: &MakerBook) -> bool {
+    book.mid_at_last_sync != 0 && book.mid_at_last_sync != book.mid_price_ticks
+}
+
 /// Fetch the market's maker registry and report whether `maker_book` is listed.
 /// Returns `None` when no registry account exists for the market.
-async fn check_registry(rpc: &RpcClient, market: &Pubkey, maker_book: &Pubkey) -> Option<bool> {
-    let (registry_pda, _) = MakerRegistry::get_address(market);
-    let account = rpc.get_account(&registry_pda).await.ok()?;
-    let registry = MakerRegistry::load(&account.data).ok()?;
+async fn check_registry(client: &ArcherClient, market: &Pubkey, maker_book: &Pubkey) -> Option<bool> {
+    let registry = client.get_maker_registry(market).await?;
     Some(registry.contains(maker_book))
+}
+
+fn maker_atas(maker: &Pubkey, cfg: &MarketConfig) -> (Pubkey, Pubkey) {
+    let base = spl_associated_token_account::get_associated_token_address_with_program_id(
+        maker,
+        &cfg.base_mint,
+        &cfg.base_token_program,
+    );
+    let quote = spl_associated_token_account::get_associated_token_address_with_program_id(
+        maker,
+        &cfg.quote_mint,
+        &cfg.quote_token_program,
+    );
+    (base, quote)
 }
 
 async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
@@ -118,25 +146,45 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     );
     tracing::info!(base_mint = %sdk_config.base_mint, quote_mint = %sdk_config.quote_mint, "MarketConfig loaded");
 
+    let market_header = archer_client.get_market_header(&market_pubkey).await?;
+    if !market_header.is_active() {
+        tracing::warn!(
+            status = market_status_str(market_header.status),
+            "Market is not Active — swaps and deposits are halted; quotes will not fill"
+        );
+    }
+
     let initial_book = archer_client
         .get_maker_book(&market_pubkey, &maker_pubkey)
         .await
         .context("Failed to fetch maker book — run `init` first.")?;
 
+    if initial_book.maker_is_archer_account != 0 {
+        anyhow::bail!(
+            "This book is owned by an ArcherAccount, which this bot does not drive. \
+             It quotes wallet-owned books (optionally via a delegate key)."
+        );
+    }
+
     let bal = maker_balances(&initial_book, &sdk_config);
     tracing::info!(base_free = bal.base_free, quote_free = bal.quote_free, "Initial balances");
+    if bal.quote_sync_unfundable {
+        tracing::warn!(
+            "Book cannot fund its pending reprice — the aggregator is skipping it until you deposit quote or reprice back within balance"
+        );
+    }
 
-    let is_lo = initial_book.is_lo();
-    tracing::info!(book_kind = initial_book.kind_str(), "Maker book loaded");
+    let is_lo = initial_book.kind == MAKER_KIND_LO;
+    tracing::info!(book_kind = kind_str(initial_book.kind), "Maker book loaded");
 
     // Registry awareness: if the market has a registry and our book isn't in it,
-    // the aggregator may never route flow to us.
-    let (maker_book_pda, _) = MakerBook::get_address(&market_pubkey, &maker_pubkey);
-    match check_registry(&rpc, &market_pubkey, &maker_book_pda).await {
+    // external aggregators will not route flow to us.
+    let (maker_book_pda, _) = derive_maker_book(&market_pubkey, &maker_pubkey);
+    match check_registry(&archer_client, &market_pubkey, &maker_book_pda).await {
         Some(true) => tracing::info!("Maker book is registered in the market registry"),
         Some(false) => tracing::warn!(
             %maker_book_pda,
-            "Maker book is NOT registered — the admin must run RegisterMaker or the aggregator may skip your quotes"
+            "Maker book is NOT registered — ask Archer to run RegisterMaker or external aggregators will skip your quotes"
         ),
         None => tracing::debug!("No maker registry for this market (registration not required)"),
     }
@@ -144,8 +192,15 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     let state = Arc::new(SharedState::new());
     state.cached_mid_ticks.store(initial_book.mid_price_ticks, std::sync::atomic::Ordering::Relaxed);
     state.onchain_sequence_number.store(initial_book.last_updated_sequence_number, std::sync::atomic::Ordering::Relaxed);
-    state.base_total_lots.store(initial_book.base_free + initial_book.base_locked, std::sync::atomic::Ordering::Relaxed);
-    state.quote_total_lots.store(initial_book.quote_free + initial_book.quote_locked, std::sync::atomic::Ordering::Relaxed);
+    state.base_total_lots.store(
+        initial_book.base_free.as_u64() + initial_book.base_locked.as_u64(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    state.quote_total_lots.store(
+        initial_book.quote_free.as_u64() + initial_book.quote_locked.as_u64(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    state.quote_unfundable.store(bal.quote_sync_unfundable, std::sync::atomic::Ordering::Relaxed);
 
     let tx_sender = Arc::new(TxSender::new(
         rpc.clone(), signer.clone(),
@@ -200,7 +255,7 @@ async fn cmd_init(config_path: &std::path::Path, kind: &str) -> Result<()> {
     let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
-    let ix = build_initialize_maker_book_ix(&keypair.pubkey(), &market, kind_byte);
+    let ix = build_initialize_maker_book_ix(keypair.pubkey(), &market, kind_byte);
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
     let kind_label = if kind_byte == MAKER_KIND_LO { "LO (limit-order)" } else { "MM (market-maker)" };
     println!("Maker book initialized [{kind_label}]: {sig}");
@@ -225,7 +280,7 @@ async fn cmd_set_delegate(config_path: &std::path::Path, delegate: Option<String
         delegate.as_deref().unwrap().parse().context("Invalid delegate pubkey")?
     };
 
-    let ix = build_set_book_delegate_ix(&keypair.pubkey(), &market, &delegate_pubkey);
+    let ix = build_set_delegate_ix(keypair.pubkey(), &market, &delegate_pubkey);
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
     if clear {
         println!("Delegate cleared: {sig}");
@@ -241,7 +296,7 @@ async fn cmd_set_expiry(config_path: &std::path::Path, slots: u64) -> Result<()>
     let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
-    let ix = build_update_expiry_in_slots_ix(&keypair.pubkey(), &market, slots);
+    let ix = build_update_expiry_in_slots_ix(keypair.pubkey(), &market, slots);
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
     if slots == 0 {
         println!("expiry_in_slots set to 0 (disabled): {sig}");
@@ -258,17 +313,11 @@ async fn cmd_deposit(config_path: &std::path::Path, base: f64, quote: f64) -> Re
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
     let sdk_config = client.get_market_config(&market).await?;
-    let rpc = RpcClient::new(mm_config.connection.rpc_url.clone());
-    let programs = resolve_token_programs(&rpc, &sdk_config.base_mint, &sdk_config.quote_mint).await?;
-    let maker_base_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &keypair.pubkey(), &sdk_config.base_mint, &programs.base,
-    );
-    let maker_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &keypair.pubkey(), &sdk_config.quote_mint, &programs.quote,
-    );
+    let (maker_base_ata, maker_quote_ata) = maker_atas(&keypair.pubkey(), &sdk_config);
     let ix = build_deposit_ix(
-        &keypair.pubkey(), &market, base, quote,
-        &maker_base_ata, &maker_quote_ata, &programs.base, &programs.quote, &sdk_config,
+        keypair.pubkey(), &market, base, quote,
+        &maker_base_ata, &maker_quote_ata,
+        &sdk_config.base_token_program, &sdk_config.quote_token_program, &sdk_config,
     )?;
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default()).await?;
     println!("Deposited {base} base + {quote} quote: {sig}");
@@ -279,50 +328,69 @@ async fn cmd_withdraw(config_path: &std::path::Path) -> Result<()> {
     let mm_config = load_config(config_path)?;
     init_tracing(&mm_config.monitoring.log_level);
     let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
+    let maker = keypair.pubkey();
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
     let sdk_config = client.get_market_config(&market).await?;
-    let rpc = RpcClient::new(mm_config.connection.rpc_url.clone());
-    let programs = resolve_token_programs(&rpc, &sdk_config.base_mint, &sdk_config.quote_mint).await?;
-    let (maker_book_pda, _) = MakerBook::get_address(&market, &keypair.pubkey());
-    let account = rpc.get_account(&maker_book_pda).await.context("MakerBook not found")?;
-    let book = MakerBook::load(&account.data)?;
+    let book = client.get_maker_book(&market, &maker).await.context("MakerBook not found")?;
+    let (maker_book_pda, _) = derive_maker_book(&market, &maker);
 
-    let total_base = book.base_free + book.base_locked;
-    let total_quote = book.quote_free + book.quote_locked;
+    // Totals are exact even while a reprice is pending; the split between
+    // locked and free is what the projection settles.
+    let total_base = book.base_free.as_u64() + book.base_locked.as_u64();
+    let total_quote = book.quote_free.as_u64() + book.quote_locked.as_u64();
     if total_base == 0 && total_quote == 0 {
         println!("Nothing to withdraw.");
         return Ok(());
     }
-    println!("  Base:  {} free, {} locked", book.base_free, book.base_locked);
-    println!("  Quote: {} free, {} locked", book.quote_free, book.quote_locked);
+    let (quote_locked, quote_free) = book
+        .projected_quote_balances(sdk_config.maker_fee_ppm)
+        .unwrap_or((book.quote_locked.as_u64(), book.quote_free.as_u64()));
+    println!("  Base:  {} free, {} locked", book.base_free.as_u64(), book.base_locked.as_u64());
+    println!("  Quote: {quote_free} free, {quote_locked} locked");
 
     let mut ixs = Vec::new();
-    if book.base_locked > 0 || book.quote_locked > 0 {
-        println!("  Locked funds detected — prepending ClearBook");
-        ixs.push(build_clear_book_ix(&keypair.pubkey(), &market, &keypair.pubkey(), book.last_updated_sequence_number + 1));
+    let has_resting = book.base_locked.as_u64() > 0 || quote_locked > 0 || has_pending_reprice(&book);
+    if has_resting {
+        println!("  Resting orders detected — prepending ClearBook");
+        ixs.push(clear_book_ix(
+            &BookAuthority::owner(maker),
+            &market,
+            book.last_updated_sequence_number + 1,
+        ));
     }
 
-    let maker_base_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &keypair.pubkey(), &sdk_config.base_mint, &programs.base,
-    );
-    let maker_quote_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
-        &keypair.pubkey(), &sdk_config.quote_mint, &programs.quote,
-    );
-
-    let wb = if book.base_locked > 0 { total_base } else { book.base_free };
-    let wq = if book.quote_locked > 0 { total_quote } else { book.quote_free };
-    let wb_ui = (wb as f64) * (sdk_config.base_atoms_per_base_lot as f64) / 10f64.powi(sdk_config.base_decimals as i32);
-    let wq_ui = (wq as f64) * (sdk_config.quote_atoms_per_quote_lot as f64) / 10f64.powi(sdk_config.quote_decimals as i32);
+    // After ClearBook everything is free, so withdraw the totals in exact lots.
+    let (wb, wq) = if has_resting {
+        (total_base, total_quote)
+    } else {
+        (book.base_free.as_u64(), quote_free)
+    };
+    let wb_ui = wb as f64 * sdk_config.lots_to_base_factor();
+    let wq_ui = wq as f64 * sdk_config.lots_to_quote_factor();
 
     if wb > 0 || wq > 0 {
-        ixs.push(build_withdraw_ix(
-            &keypair.pubkey(), &market, wb_ui, wq_ui,
-            &maker_base_ata, &maker_quote_ata, &programs.base, &programs.quote, &sdk_config,
-        )?);
+        let (maker_base_ata, maker_quote_ata) = maker_atas(&maker, &sdk_config);
+        ixs.push(create_maker_withdraw_funds_instruction(
+            MakerWithdrawFundsParams {
+                base_lots: BaseLots::new(wb),
+                quote_lots: QuoteLots::new(wq),
+            },
+            maker,
+            maker_book_pda,
+            market,
+            sdk_config.base_mint,
+            sdk_config.quote_mint,
+            maker_base_ata,
+            maker_quote_ata,
+            sdk_config.base_vault,
+            sdk_config.quote_vault,
+            sdk_config.base_token_program,
+            sdk_config.quote_token_program,
+        ));
     }
     let sig = client.send_instructions(&ixs, &[&keypair], SendOptions::default()).await?;
-    println!("Withdrawn: {sig}");
+    println!("Withdrawn {wb_ui} base + {wq_ui} quote: {sig}");
     Ok(())
 }
 
@@ -333,7 +401,11 @@ async fn cmd_kill(config_path: &std::path::Path) -> Result<()> {
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
     let book = client.get_maker_book(&market, &keypair.pubkey()).await?;
-    let ix = build_clear_book_ix(&keypair.pubkey(), &market, &keypair.pubkey(), book.last_updated_sequence_number + 1);
+    let ix = clear_book_ix(
+        &BookAuthority::owner(keypair.pubkey()),
+        &market,
+        book.last_updated_sequence_number + 1,
+    );
     let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default().with_priority_fee(500_000)).await?;
     println!("Book cleared: {sig}");
     Ok(())
@@ -347,13 +419,11 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     let sdk_config = client.get_market_config(&market).await?;
     let book = client.get_maker_book(&market, &keypair.pubkey()).await?;
     let bal = maker_balances(&book, &sdk_config);
-    let rpc = RpcClient::new(mm_config.connection.rpc_url.clone());
-    let market_account = rpc.get_account(&market).await?;
-    let header = parse_market_state(&market_account.data)?;
-    let mode = match header.mode { 0 => "Continuous", 1 => "Asynchronous", 2 => "Hybrid", _ => "Unknown" };
+    let header = client.get_market_header(&market).await?;
+    let slot = client.get_slot().await?;
 
-    let (maker_book_pda, _) = MakerBook::get_address(&market, &keypair.pubkey());
-    let registered = match check_registry(&rpc, &market, &maker_book_pda).await {
+    let (maker_book_pda, _) = derive_maker_book(&market, &keypair.pubkey());
+    let registered = match check_registry(&client, &market, &maker_book_pda).await {
         Some(true) => "yes",
         Some(false) => "NO (book not in registry)",
         None => "n/a (no registry)",
@@ -363,26 +433,39 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     } else {
         book.delegate.to_string()
     };
-    let status = match book.status { 1 => "Active", 2 => "Suspended", _ => "Unknown" };
+    let expiry = if book.expiry_in_slots == 0 {
+        "disabled".to_string()
+    } else {
+        let age = slot.saturating_sub(book.last_updated_slot);
+        format!("{} ({}{} slots since last update)", book.expiry_in_slots, age, if book.is_stale(slot) { ", EXPIRED" } else { "" })
+    };
+    let reprice = match (has_pending_reprice(&book), bal.quote_sync_unfundable) {
+        (false, _) => "settled".to_string(),
+        (true, false) => format!("pending (balances settled at mid {})", book.mid_at_last_sync),
+        (true, true) => "pending and UNFUNDABLE — aggregator is skipping this book".to_string(),
+    };
+    let eligible = if book.is_auction_eligible(slot, sdk_config.maker_fee_ppm) { "yes" } else { "NO" };
 
     println!("=== Archer Market Maker Status ===");
-    println!("Market:       {market}");
-    println!("Maker:        {}", keypair.pubkey());
-    println!("Book PDA:     {maker_book_pda}");
-    println!("Mode:         {mode}");
-    println!("Book kind:    {}", book.kind_str());
-    println!("Book status:  {status}");
-    println!("Registered:   {registered}");
-    println!("Delegate:     {delegate}");
-    println!("Sync spread:  {} ticks", book.sync_spread_ticks);
-    println!("Expiry slots: {}", book.expiry_in_slots);
-    println!("Mid ticks:    {}", book.mid_price_ticks);
-    println!("Bid levels:   {}", active_bid_levels(&book));
-    println!("Ask levels:   {}", active_ask_levels(&book));
-    println!("Base free:    {:.6}", bal.base_free);
-    println!("Base locked:  {:.6}", bal.base_locked);
-    println!("Quote free:   {:.4}", bal.quote_free);
-    println!("Quote locked: {:.4}", bal.quote_locked);
+    println!("Market:        {market}");
+    println!("Market status: {}", market_status_str(header.status));
+    println!("Maker:         {}", keypair.pubkey());
+    println!("Book PDA:      {maker_book_pda}");
+    println!("Book kind:     {}", kind_str(book.kind));
+    println!("Book status:   {}", book_status_str(book.status));
+    println!("Registered:    {registered}");
+    println!("Delegate:      {delegate}");
+    println!("Expiry slots:  {expiry}");
+    println!("Sequence:      {}", book.last_updated_sequence_number);
+    println!("Mid ticks:     {}", book.mid_price_ticks);
+    println!("Reprice:       {reprice}");
+    println!("Fillable now:  {eligible}");
+    println!("Bid levels:    {}", active_bid_levels(&book));
+    println!("Ask levels:    {}", active_ask_levels(&book));
+    println!("Base free:     {:.6}", bal.base_free);
+    println!("Base locked:   {:.6}", bal.base_locked);
+    println!("Quote free:    {:.4}", bal.quote_free);
+    println!("Quote locked:  {:.4}", bal.quote_locked);
     Ok(())
 }
 
@@ -390,15 +473,6 @@ async fn cmd_markets(cmd: MarketsCommand) -> Result<()> {
     match cmd {
         MarketsCommand::List { config, all } => cmd_markets_list(&config, all).await,
         MarketsCommand::View { config, market } => cmd_markets_view(&config, market).await,
-    }
-}
-
-fn market_status_str(status: u8) -> &'static str {
-    match status {
-        0 => "Active",
-        1 => "Paused",
-        2 => "Closed",
-        _ => "Unknown",
     }
 }
 
@@ -466,14 +540,14 @@ async fn cmd_markets_list(config_path: &std::path::Path, all: bool) -> Result<()
     let mut markets = client.get_all_markets().await?;
 
     if !all {
-        markets.retain(|(_, h)| h.status == 0);
+        markets.retain(|(_, h)| h.is_active());
     }
 
     if markets.is_empty() {
         if all {
             println!("No markets found on the Archer program.");
         } else {
-            println!("No active markets found (use `--all` to include paused/closed).");
+            println!("No active markets found (use `--all` to include paused/closed/frozen).");
         }
         return Ok(());
     }
@@ -546,10 +620,8 @@ async fn cmd_markets_view(config_path: &std::path::Path, market: Option<String>)
         .get_market_config(&market)
         .await
         .context("Failed to fetch market — is the pubkey a valid Archer market?")?;
-
-    let rpc = RpcClient::new(ctx.rpc_url.clone());
-    let account = rpc.get_account(&market).await.context("Failed to fetch market account")?;
-    let h: MarketStateHeader = *MarketStateHeader::load(&account.data)?;
+    let h = client.get_market_header(&market).await?;
+    let slot = client.get_slot().await?;
 
     let symbols = client.get_token_symbols(&[cfg.base_mint, cfg.quote_mint]).await;
     let sym = |mint: &Pubkey| symbols.get(mint).map(String::as_str).unwrap_or("?");
@@ -567,32 +639,30 @@ async fn cmd_markets_view(config_path: &std::path::Path, market: Option<String>)
     println!("Maker fee:    {} ppm ({:.2} bps)", h.maker_fee_ppm, h.maker_fee_ppm as f64 / 100.0);
     println!("Taker fee:    {} ppm ({:.2} bps)", h.taker_fee_ppm, h.taker_fee_ppm as f64 / 100.0);
 
+    // Top of book across the books the matching engine would actually fill:
+    // active, not expired, and able to fund any pending reprice.
     let books = client.get_maker_books_for_market(&market).await?;
-    let active = books.iter().filter(|b| b.status == 1).count();
+    let eligible: Vec<&MakerBook> = books
+        .iter()
+        .filter(|b| b.is_auction_eligible(slot, cfg.maker_fee_ppm))
+        .collect();
 
     let mut best_bid: Option<f64> = None;
     let mut best_ask: Option<f64> = None;
     let factor = cfg.ticks_to_price_factor();
-    for book in books.iter().filter(|b| b.status == 1) {
-        let mid = book.mid_price_ticks as i64;
-        for lvl in book.bid_levels.iter().filter(|l| l.size_in_base_lots > 0) {
-            let ticks = mid + lvl.price_offset_ticks;
-            if ticks > 0 {
-                let price = ticks as f64 * factor;
-                best_bid = Some(best_bid.map_or(price, |b| b.max(price)));
-            }
+    for book in &eligible {
+        if let Some(ticks) = book.best_bid_price() {
+            let price = ticks as f64 * factor;
+            best_bid = Some(best_bid.map_or(price, |b| b.max(price)));
         }
-        for lvl in book.ask_levels.iter().filter(|l| l.size_in_base_lots > 0) {
-            let ticks = mid + lvl.price_offset_ticks;
-            if ticks > 0 {
-                let price = ticks as f64 * factor;
-                best_ask = Some(best_ask.map_or(price, |a| a.min(price)));
-            }
+        if let Some(ticks) = book.best_ask_price() {
+            let price = ticks as f64 * factor;
+            best_ask = Some(best_ask.map_or(price, |a| a.min(price)));
         }
     }
 
     println!("\n--- Liquidity ---");
-    println!("Maker books:  {} ({} active)", books.len(), active);
+    println!("Maker books:  {} ({} fillable)", books.len(), eligible.len());
     match (best_bid, best_ask) {
         (Some(bid), Some(ask)) => {
             let spread_bps = if ask > 0.0 { (ask - bid) / ask * 10_000.0 } else { 0.0 };

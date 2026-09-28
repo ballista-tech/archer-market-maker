@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
+use archer_sdk::accounts::{parse_maker_book, parse_market_state};
+use archer_sdk::config::MarketConfig;
+use archer_sdk::onchain::{
+    MAKER_BOOK_DISCRIMINATOR, MARKET_STATE_DISCRIMINATOR, MakerBook, MakerRegistry, MarketStateHeader,
+};
+use archer_sdk::pda::derive_maker_registry;
+use archer_sdk::ARCHER_V1_PROGRAM_ID;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
@@ -13,19 +20,13 @@ use solana_sdk::signature::{Keypair, Signature};
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 
-use super::accounts;
-use super::config::MarketConfig;
-use super::types::{
-    MakerBook, MarketStateHeader, MAKER_BOOK_DISCRIMINATOR, MARKET_STATE_DISCRIMINATOR, PROGRAM_ID,
-};
-
 const METAPLEX_METADATA_PROGRAM: Pubkey =
     solana_sdk::pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 
 const MAX_MULTI_ACCOUNTS: usize = 100;
 
 pub struct ArcherClient {
-    rpc: RpcClient,
+    sdk: archer_sdk::client::ArcherClient,
 }
 
 #[derive(Debug, Clone)]
@@ -55,44 +56,45 @@ impl SendOptions {
 impl ArcherClient {
     pub fn new(rpc_url: &str) -> Self {
         Self {
-            rpc: RpcClient::new_with_commitment(
-                rpc_url.to_string(),
-                CommitmentConfig::confirmed(),
-            ),
+            sdk: archer_sdk::client::ArcherClient::new(rpc_url),
         }
     }
 
+    fn rpc(&self) -> &RpcClient {
+        self.sdk.rpc()
+    }
+
+    /// Market parameters plus the token programs and vaults, cached per market.
     pub async fn get_market_config(&self, market: &Pubkey) -> Result<MarketConfig> {
+        self.sdk
+            .get_market_config(market)
+            .await
+            .context("Failed to fetch market config")
+    }
+
+    pub async fn get_market_header(&self, market: &Pubkey) -> Result<MarketStateHeader> {
         let account = self
-            .rpc
+            .rpc()
             .get_account(market)
             .await
             .context("Failed to fetch market account")?;
+        Ok(*parse_market_state(&account.data)?)
+    }
 
-        let header = accounts::parse_market_state(&account.data)?;
-
-        let base_mint_account = self
-            .rpc
-            .get_account(&header.base_mint)
+    pub async fn get_maker_book(&self, market: &Pubkey, maker: &Pubkey) -> Result<MakerBook> {
+        self.sdk
+            .get_maker_book(market, maker)
             .await
-            .context("Failed to fetch base mint")?;
-        let quote_mint_account = self
-            .rpc
-            .get_account(&header.quote_mint)
-            .await
-            .context("Failed to fetch quote mint")?;
+            .context("Failed to fetch maker book account")
+    }
 
-        let base_decimals = base_mint_account.data[44];
-        let quote_decimals = quote_mint_account.data[44];
-
-        Ok(MarketConfig::from_header(
-            *market,
-            header,
-            base_decimals,
-            quote_decimals,
-            base_mint_account.owner,
-            quote_mint_account.owner,
-        ))
+    /// The market's registry, or `None` when the market has none.
+    pub async fn get_maker_registry(&self, market: &Pubkey) -> Option<MakerRegistry> {
+        let (pda, _) = derive_maker_registry(market);
+        // A missing account is the common case for unregistered markets, so it
+        // is not an error here; any other failure is also reported as "unknown".
+        self.rpc().get_account(&pda).await.ok()?;
+        self.sdk.get_maker_registry(market).await.ok()
     }
 
     pub async fn get_all_markets(&self) -> Result<Vec<(Pubkey, MarketStateHeader)>> {
@@ -110,20 +112,25 @@ impl ArcherClient {
         };
 
         let accounts = self
-            .rpc
-            .get_program_accounts_with_config(&PROGRAM_ID, config)
+            .rpc()
+            .get_program_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
             .await
             .context("Failed to fetch market accounts")?;
 
         let mut markets = Vec::with_capacity(accounts.len());
         for (pubkey, account) in accounts {
-            if let Ok(header) = MarketStateHeader::load(&account.data) {
+            if let Ok(header) = parse_market_state(&account.data) {
                 markets.push((pubkey, *header));
             }
         }
         Ok(markets)
     }
 
+    /// Every MakerBook on a market via `getProgramAccounts`.
+    ///
+    /// Done here rather than through the SDK client because public RPCs reject
+    /// a `getProgramAccounts` without an explicit base64 encoding, which the SDK
+    /// does not set.
     pub async fn get_maker_books_for_market(&self, market: &Pubkey) -> Result<Vec<MakerBook>> {
         let config = RpcProgramAccountsConfig {
             filters: Some(vec![
@@ -139,18 +146,22 @@ impl ArcherClient {
         };
 
         let accounts = self
-            .rpc
-            .get_program_accounts_with_config(&PROGRAM_ID, config)
+            .rpc()
+            .get_program_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
             .await
             .context("Failed to fetch maker book accounts")?;
 
         let mut books = Vec::with_capacity(accounts.len());
         for (_, account) in accounts {
-            if let Ok(book) = MakerBook::load(&account.data) {
+            if let Ok(book) = parse_maker_book(&account.data) {
                 books.push(*book);
             }
         }
         Ok(books)
+    }
+
+    pub async fn get_slot(&self) -> Result<u64> {
+        self.sdk.get_slot().await.context("Failed to fetch slot")
     }
 
     pub async fn get_token_symbols(&self, mints: &[Pubkey]) -> HashMap<Pubkey, String> {
@@ -164,7 +175,7 @@ impl ArcherClient {
             .chunks(MAX_MULTI_ACCOUNTS)
             .zip(pdas.chunks(MAX_MULTI_ACCOUNTS))
         {
-            let Ok(accounts) = self.rpc.get_multiple_accounts(pda_chunk).await else {
+            let Ok(accounts) = self.rpc().get_multiple_accounts(pda_chunk).await else {
                 continue;
             };
             for (mint, acc) in mint_chunk.iter().zip(accounts) {
@@ -176,7 +187,7 @@ impl ArcherClient {
 
         let missing: Vec<Pubkey> = mints.iter().filter(|m| !out.contains_key(m)).copied().collect();
         for chunk in missing.chunks(MAX_MULTI_ACCOUNTS) {
-            let Ok(accounts) = self.rpc.get_multiple_accounts(chunk).await else {
+            let Ok(accounts) = self.rpc().get_multiple_accounts(chunk).await else {
                 continue;
             };
             for (mint, acc) in chunk.iter().zip(accounts) {
@@ -192,17 +203,6 @@ impl ArcherClient {
         }
 
         out
-    }
-
-    pub async fn get_maker_book(&self, market: &Pubkey, maker: &Pubkey) -> Result<MakerBook> {
-        let (pda, _) = MakerBook::get_address(market, maker);
-        let account = self
-            .rpc
-            .get_account(&pda)
-            .await
-            .context("Failed to fetch maker book account")?;
-        let book = MakerBook::load(&account.data)?;
-        Ok(*book)
     }
 
     pub async fn send_instructions(
@@ -223,7 +223,7 @@ impl ArcherClient {
         all_ixs.extend_from_slice(instructions);
 
         let blockhash = self
-            .rpc
+            .rpc()
             .get_latest_blockhash()
             .await
             .context("Failed to get blockhash")?;
@@ -233,7 +233,7 @@ impl ArcherClient {
 
         let mut last_err = None;
         for _ in 0..=options.max_retries {
-            match self.rpc.send_and_confirm_transaction(&tx).await {
+            match self.rpc().send_and_confirm_transaction(&tx).await {
                 Ok(sig) => return Ok(sig),
                 Err(e) => last_err = Some(e),
             }

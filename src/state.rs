@@ -32,6 +32,9 @@ pub struct SharedState {
     pub fill_quote_lots: AtomicU64,
     /// Number of times inventory was refreshed from an on-chain book account update.
     pub book_resyncs: AtomicU64,
+    /// True while the book's pending mid-price rebalance exceeds its free quote,
+    /// which makes the matching engine skip it. Set from the account stream.
+    pub quote_unfundable: AtomicBool,
 
     pub engine_alive: AtomicBool,
 }
@@ -59,6 +62,7 @@ impl SharedState {
             fill_base_lots: AtomicU64::new(0),
             fill_quote_lots: AtomicU64::new(0),
             book_resyncs: AtomicU64::new(0),
+            quote_unfundable: AtomicBool::new(false),
             engine_alive: AtomicBool::new(false),
         }
     }

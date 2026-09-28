@@ -8,6 +8,26 @@ A simple market maker for the Archer Exchange.
 
 Places bid and ask orders on an Archer on-chain orderbook using Binance WebSocket prices as a reference, with optional cross-tick synthetic pricing. Designed to be **easy to understand** and **a starting point** for building your own strategy.
 
+## Program v2
+
+Archer's program is being upgraded to v2. This bot tracks it through the
+[`archer-sdk`](https://github.com/ballista-tech/archer-sdk) crate, which is the
+source of truth for account layouts, instruction encoding and quoting math; the
+bot itself declares nothing about the on-chain format. Pull the latest `main`
+and rebuild.
+
+What changes for a maker, and how the bot handles it:
+
+| v2 change | Effect on you |
+|---|---|
+| **Sequence numbers are a counter**: every book write must be `last + 1 ..= last + 65535`. Slot- or timestamp-derived numbers are rejected. | The engine derives them from the book and keeps its counter in step with the chain. If you fork the strategy, take the number from `last_updated_sequence_number + 1`, never from a clock. |
+| **Deferred quote rebalancing**: `UpdateMidPrice` no longer moves `quote_locked`/`quote_free` and never fails on balance. A book repriced beyond its free quote is skipped by the matching engine, with nothing reverting. | Balances shown by `status` and used internally are the SDK's *projected* values. `status` prints `Reprice:` and `Fillable now:`; `run` warns the moment the book becomes unfundable. Deposit quote or reprice back to recover. |
+| **Market modes and the per-book sync spread are gone.** Every swap fills at the market's base taker fee, at your raw quoted prices. | Quote the spread you actually want. `status` no longer prints `Mode` or `Sync spread`. |
+| **New `Frozen` market status** halts swaps and maker withdrawals. | Shown by `markets list`, `markets view` and `status`. |
+
+Your existing MakerBook, balances and resting quotes carry over unchanged; no
+migration transaction is needed.
+
 ## How It Works
 
 The bot is **event-driven** — it reacts instantly to WebSocket price changes instead of polling:
@@ -156,6 +176,10 @@ archer-market-maker <COMMAND>
   set-expiry   Set expiry_in_slots (aggregator skips this book's quotes
                once `current_slot - last_updated_slot >= expiry_in_slots`;
                `--slots 0` disables the check)
+
+`status` also tells you whether the matching engine would fill your book right
+now (`Fillable now`), which combines three checks the program applies: the book
+is Active, it has not expired, and it can fund any pending reprice.
   set-delegate Authorize a delegate to manage orders on your behalf
                (`--delegate <pubkey>`; omit or `--delegate clear` to revoke)
 ```
@@ -230,18 +254,24 @@ src/
 ├── engine.rs        Core loop: price → strategy → TX
 ├── state.rs         Shared atomic state
 ├── tx.rs            Fire-and-forget TX sender
-└── archer/          Self-contained Archer protocol client
-    ├── types.rs     On-chain account layouts (MakerBook, MarketStateHeader)
-    ├── config.rs    MarketConfig with conversion factors
-    ├── math.rs      Price/lot conversions + book update builder
-    ├── ix_builder.rs  Instruction builders for all maker operations
-    ├── accounts.rs  Account parsing + balance helpers
-    └── client.rs    High-level RPC client
+├── fills.rs         Fill events + live inventory over the RPC websocket
+└── archer/          What the bot adds on top of archer-sdk
+    ├── client.rs    SDK client + market scan, token symbols, confirmed send
+    └── quote.rs     MM/LO book construction, delegate-signed quoting instructions
 ```
+
+Account layouts, discriminators, instruction encoders, PDA derivation and the
+tick/lot math all come from the `archer-sdk` crate (pinned by `rev` in
+`Cargo.toml`). To pick up a program change, bump that rev.
 
 ## Adding Your Own Strategy
 
 Edit `strategy.rs`. The `compute()` method takes a mid price and inventory, returns a `QuoteDecision`. The engine and TX layers don't change.
+
+If you build your own instructions instead, use `archer_sdk::ix_builder::maker`
+(or `archer_sdk::onchain::builders` when a delegate key signs for the owner's
+book, as `src/archer/quote.rs` does) and take sequence numbers from
+`archer_sdk::accounts::next_sequence_number`.
 
 Ideas to try:
 - Lean quotes based on inventory (shift mid toward the side you want to offload)
