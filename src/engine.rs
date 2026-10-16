@@ -18,6 +18,20 @@ const CU_CLEAR_BOOK: u32 = 650;
 const CU_MID_ONLY: u32 = 850;
 const CU_FULL_UPDATE: u32 = 5600;
 
+/// How far `local_seq` may run ahead of the book before it is treated as
+/// drift from sends that never landed and reset to the on-chain value. Well
+/// inside the program's `MAX_SEQUENCE_JUMP` (65_535), past which every write
+/// is rejected.
+const MAX_LOCAL_SEQ_LEAD: u64 = 4_096;
+
+/// How long a mid update that has not yet shown up on chain is left alone
+/// before the same ticks are sent again. Covers confirmation plus the account
+/// subscription's delivery; past it the send is assumed dropped.
+const MID_RESEND_AFTER: Duration = Duration::from_secs(2);
+
+/// How long shutdown waits for the final ClearBook to be accepted by the RPC.
+const SHUTDOWN_CLEAR_TIMEOUT: Duration = Duration::from_secs(8);
+
 pub async fn run_engine(
     state: Arc<SharedState>,
     sdk_config: Arc<MarketConfig>,
@@ -40,6 +54,7 @@ pub async fn run_engine(
 
     let mut last_structure_hash: u64 = 0;
     let mut last_sent_mid_ticks: u64 = 0;
+    let mut last_sent_at_us: u64 = 0;
     let mut needs_initial_book: bool = true;
     let mut local_seq: u64 = initial_sequence_number;
 
@@ -61,7 +76,19 @@ pub async fn run_engine(
                 state.engine_alive.store(false, Relaxed);
                 local_seq += 1;
                 let ix = clear_book_ix(&authority, &market_pubkey, local_seq);
-                tx_sender.fire(vec![ix], TxPriority::Emergency, CU_CLEAR_BOOK);
+                // Awaited, not fired: the process exits as soon as this task
+                // returns, which would drop a spawned send mid-flight and
+                // leave the quotes resting.
+                match tokio::time::timeout(
+                    SHUTDOWN_CLEAR_TIMEOUT,
+                    tx_sender.send_now(vec![ix], TxPriority::Emergency, CU_CLEAR_BOOK),
+                )
+                .await
+                {
+                    Ok(Ok(sig)) => tracing::info!(%sig, "ClearBook sent"),
+                    Ok(Err(e)) => tracing::error!("ClearBook send failed: {e:#}"),
+                    Err(_) => tracing::error!("ClearBook send timed out; quotes may still rest"),
+                }
                 return;
             }
             _ = state.price_notify.notified() => false,
@@ -107,6 +134,13 @@ pub async fn run_engine(
         let onchain_seq = state.onchain_sequence_number.load(Relaxed);
         if onchain_seq > local_seq {
             local_seq = onchain_seq;
+        } else if local_seq.saturating_sub(onchain_seq) > MAX_LOCAL_SEQ_LEAD {
+            // `local_seq` only ever climbs on sends, and a send that never
+            // lands leaves it ahead of the book. Past this lead it is drift;
+            // fall back to the on-chain value rather than march toward the
+            // program's jump ceiling, after which every write is rejected.
+            tracing::warn!(local_seq, onchain_seq, "Local sequence drifted ahead of the book, resyncing");
+            local_seq = onchain_seq;
         }
 
         let cached_mid = state.cached_mid_ticks.load(Relaxed);
@@ -124,26 +158,6 @@ pub async fn run_engine(
             volatility_bps,
         );
 
-        let max_dev_pct = mm_config.strategy.max_price_deviation_pct;
-        if max_dev_pct > 0.0 && cached_mid > 0 {
-            let candidate_mid_ticks = match &decision {
-                QuoteDecision::UpdateMidOnly { new_mid_ticks } => Some(*new_mid_ticks),
-                QuoteDecision::UpdateFull { book_update, .. } => Some(book_update.new_mid_price_ticks),
-                _ => None,
-            };
-            if let Some(new_ticks) = candidate_mid_ticks {
-                let dev_pct = (new_ticks as f64 - cached_mid as f64).abs() / cached_mid as f64 * 100.0;
-                if dev_pct > max_dev_pct {
-                    tracing::warn!(
-                        new_ticks, onchain_ticks = cached_mid, dev_pct, max_dev_pct,
-                        "Mid deviates beyond band — withholding update"
-                    );
-                    state.cycles_total.fetch_add(1, Relaxed);
-                    continue;
-                }
-            }
-        }
-
         match decision {
             QuoteDecision::Noop => {
                 state.cycles_total.fetch_add(1, Relaxed);
@@ -159,8 +173,18 @@ pub async fn run_engine(
                 needs_initial_book = true;
             }
             QuoteDecision::UpdateMidOnly { new_mid_ticks } => {
-                // Skip if ticks unchanged (price moved but not enough to change tick).
-                if new_mid_ticks == last_sent_mid_ticks && !is_heartbeat {
+                // The on-chain book is the reference. Same ticks: nothing to
+                // do, heartbeat or not. Different ticks: the book is wrong and
+                // must be repriced, unless exactly these ticks were sent
+                // moments ago and have simply not shown up on chain yet.
+                if new_mid_ticks == cached_mid {
+                    state.cycles_total.fetch_add(1, Relaxed);
+                    continue;
+                }
+                let now_us = crate::state::now_us();
+                if new_mid_ticks == last_sent_mid_ticks
+                    && now_us.saturating_sub(last_sent_at_us) < MID_RESEND_AFTER.as_micros() as u64
+                {
                     state.cycles_total.fetch_add(1, Relaxed);
                     continue;
                 }
@@ -173,6 +197,7 @@ pub async fn run_engine(
                     state.heartbeat_sends.fetch_add(1, Relaxed);
                 }
                 last_sent_mid_ticks = new_mid_ticks;
+                last_sent_at_us = now_us;
             }
             QuoteDecision::UpdateFull { ref book_update, structure_hash } => {
                 let (ixs, last_seq) = update_instructions(&authority, &market_pubkey, book_update, local_seq + 1);
@@ -181,6 +206,7 @@ pub async fn run_engine(
                 state.book_updates.fetch_add(1, Relaxed);
                 state.updates_sent.fetch_add(1, Relaxed);
                 last_sent_mid_ticks = book_update.new_mid_price_ticks;
+                last_sent_at_us = crate::state::now_us();
                 last_structure_hash = structure_hash;
                 needs_initial_book = false;
             }

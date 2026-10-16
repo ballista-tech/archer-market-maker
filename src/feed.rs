@@ -69,11 +69,6 @@ pub async fn run_feed(
     let mut backoff_ms: u64 = 100;
     let mut vol_tracker = VolatilityTracker::new(vol_window);
 
-    let mut primary_bid: f64 = 0.0;
-    let mut primary_ask: f64 = 0.0;
-    let mut cross_bid: f64 = 0.0;
-    let mut cross_ask: f64 = 0.0;
-
     loop {
         if cancel.is_cancelled() {
             return;
@@ -86,6 +81,10 @@ pub async fn run_feed(
             Ok((ws_stream, _)) => {
                 backoff_ms = 100;
                 state.feed_alive.store(true, Relaxed);
+                let mut primary_bid: f64 = 0.0;
+                let mut primary_ask: f64 = 0.0;
+                let mut cross_bid: f64 = 0.0;
+                let mut cross_ask: f64 = 0.0;
 
                 let (mut write, mut read) = ws_stream.split();
 

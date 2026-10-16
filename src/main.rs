@@ -243,7 +243,7 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     tokio::signal::ctrl_c().await?;
     tracing::info!("Shutting down");
     cancel.cancel();
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), engine_handle).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), engine_handle).await;
     tracing::info!("Stopped");
     Ok(())
 }

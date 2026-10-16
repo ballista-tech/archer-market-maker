@@ -33,7 +33,7 @@ migration transaction is needed.
 The bot is **event-driven** — it reacts instantly to WebSocket price changes instead of polling:
 
 1. **Price change** — when the feed delivers a new mid price that changes the on-chain tick, the engine fires an update immediately
-2. **Heartbeat** — if no price change occurs for `heartbeat_interval_ms` (default 100ms), a heartbeat update is sent with the freshest price
+2. **Heartbeat** — if no price change occurs for `heartbeat_interval_ms` (default 100ms), the engine compares the freshest price against the on-chain mid and sends an update only if they differ (so a dropped update is retried, and a book that is already correct is left alone)
 3. **Compute quotes** — places 8 bid/ask levels at volatility-adjusted bps offsets from mid
 4. **Send transaction** — picks the cheapest Solana instruction type to update the on-chain book
 
@@ -236,7 +236,6 @@ All settings in `config/default.toml`:
 | `strategy` | `vol_window` | `300` | Rolling window size (price samples) for volatility |
 | `strategy` | `vol_baseline_bps` | `5.0` | Per-sample vol (bps) at which spreads are unchanged |
 | `strategy` | `vol_max_multiplier` | `5.0` | Maximum spread multiplier from vol scaling |
-| `strategy` | `max_price_deviation_pct` | `5.0` | Circuit breaker: withhold a mid update that deviates more than this % from the last on-chain mid (`0` disables) |
 | `execution` | `heartbeat_interval_ms` | `100` | Max idle time before heartbeat update |
 | `execution` | `priority_fee_microlamports` | `100` | Solana priority fee |
 | `execution` | `shadow_mode` | `false` | Dry run mode |

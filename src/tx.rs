@@ -56,6 +56,38 @@ impl TxSender {
         }
     }
 
+    pub async fn send_now(
+        &self,
+        instructions: Vec<Instruction>,
+        priority: TxPriority,
+        cu_limit: u32,
+    ) -> Result<Signature> {
+        if self.shadow_mode {
+            tracing::debug!(ix_count = instructions.len(), cu = cu_limit, "SHADOW: would send TX");
+            return Ok(Signature::default());
+        }
+        let fee = match priority {
+            TxPriority::Normal => self.priority_fee,
+            TxPriority::Emergency => self.priority_fee.saturating_mul(10),
+        };
+        let result = build_and_send(
+            &self.rpc,
+            &self.signer,
+            instructions,
+            fee,
+            cu_limit,
+            &self.blockhash_cache,
+        )
+        .await;
+        match &result {
+            Ok(_) => self.state.consecutive_failures.store(0, Relaxed),
+            Err(_) => {
+                self.state.consecutive_failures.fetch_add(1, Relaxed);
+            }
+        }
+        result
+    }
+
     pub fn fire(&self, instructions: Vec<Instruction>, priority: TxPriority, cu_limit: u32) {
         if self.shadow_mode {
             tracing::debug!(ix_count = instructions.len(), cu = cu_limit, "SHADOW: would send TX");

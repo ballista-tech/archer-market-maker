@@ -79,7 +79,9 @@ impl Strategy {
                     size: ask_size,
                 });
             }
-            ask_sizes_q.push((ask_q * 100.0) as u64);
+            // `quantize` leaves values like 0.29 as 0.28999…; truncating
+            // would hash a different size than was quoted.
+            ask_sizes_q.push((ask_q * 100.0).round() as u64);
 
             if bid_q > 0.0 {
                 bids.push(Quote {
@@ -87,7 +89,7 @@ impl Strategy {
                     size: bid_size,
                 });
             }
-            bid_sizes_q.push((bid_q * 100.0) as u64);
+            bid_sizes_q.push((bid_q * 100.0).round() as u64);
         }
 
         if bids.is_empty() && asks.is_empty() {
