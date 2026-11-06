@@ -17,7 +17,7 @@ use solana_client::rpc_config::{
     RpcAccountInfoConfig, RpcTransactionLogsConfig, RpcTransactionLogsFilter,
 };
 use solana_client::rpc_response::RpcLogsResponse;
-use solana_sdk::commitment_config::CommitmentConfig;
+use solana_commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use tokio_util::sync::CancellationToken;
 

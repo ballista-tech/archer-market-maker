@@ -12,8 +12,8 @@ use solana_account_decoder::UiAccountEncoding;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::{Memcmp, RpcFilterType};
-use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::compute_budget::ComputeBudgetInstruction;
+use solana_commitment_config::CommitmentConfig;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signature};
@@ -113,13 +113,14 @@ impl ArcherClient {
 
         let accounts = self
             .rpc()
-            .get_program_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
+            .get_program_ui_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
             .await
             .context("Failed to fetch market accounts")?;
 
         let mut markets = Vec::with_capacity(accounts.len());
         for (pubkey, account) in accounts {
-            if let Ok(header) = parse_market_state(&account.data) {
+            let Some(data) = account.data.decode() else { continue };
+            if let Ok(header) = parse_market_state(&data) {
                 markets.push((pubkey, *header));
             }
         }
@@ -147,13 +148,14 @@ impl ArcherClient {
 
         let accounts = self
             .rpc()
-            .get_program_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
+            .get_program_ui_accounts_with_config(&ARCHER_V1_PROGRAM_ID, config)
             .await
             .context("Failed to fetch maker book accounts")?;
 
         let mut books = Vec::with_capacity(accounts.len());
         for (_, account) in accounts {
-            if let Ok(book) = parse_maker_book(&account.data) {
+            let Some(data) = account.data.decode() else { continue };
+            if let Ok(book) = parse_maker_book(&data) {
                 books.push(*book);
             }
         }
@@ -162,6 +164,12 @@ impl ArcherClient {
 
     pub async fn get_slot(&self) -> Result<u64> {
         self.sdk.get_slot().await.context("Failed to fetch slot")
+    }
+
+    /// The `LastRestartSlot` sysvar (0 if the cluster never restarted): books last
+    /// updated at or before it are skipped by the program.
+    pub async fn get_last_restart_slot(&self) -> Result<u64> {
+        self.sdk.get_last_restart_slot().await.context("Failed to fetch the LastRestartSlot sysvar")
     }
 
     pub async fn get_token_symbols(&self, mints: &[Pubkey]) -> HashMap<Pubkey, String> {

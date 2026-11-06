@@ -137,7 +137,7 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
 
     let rpc = Arc::new(solana_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
         mm_config.connection.rpc_url.clone(),
-        solana_sdk::commitment_config::CommitmentConfig::processed(),
+        solana_commitment_config::CommitmentConfig::processed(),
     ));
 
     let archer_client = ArcherClient::new(&mm_config.connection.rpc_url);
@@ -421,6 +421,7 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     let bal = maker_balances(&book, &sdk_config);
     let header = client.get_market_header(&market).await?;
     let slot = client.get_slot().await?;
+    let last_restart_slot = client.get_last_restart_slot().await?;
 
     let (maker_book_pda, _) = derive_maker_book(&market, &keypair.pubkey());
     let registered = match check_registry(&client, &market, &maker_book_pda).await {
@@ -444,7 +445,7 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
         (true, false) => format!("pending (balances settled at mid {})", book.mid_at_last_sync),
         (true, true) => "pending and UNFUNDABLE — aggregator is skipping this book".to_string(),
     };
-    let eligible = if book.is_auction_eligible(slot, sdk_config.maker_fee_ppm) { "yes" } else { "NO" };
+    let eligible = if book.is_auction_eligible(slot, last_restart_slot, sdk_config.maker_fee_ppm) { "yes" } else { "NO" };
 
     println!("=== Archer Market Maker Status ===");
     println!("Market:        {market}");
@@ -622,6 +623,7 @@ async fn cmd_markets_view(config_path: &std::path::Path, market: Option<String>)
         .context("Failed to fetch market — is the pubkey a valid Archer market?")?;
     let h = client.get_market_header(&market).await?;
     let slot = client.get_slot().await?;
+    let last_restart_slot = client.get_last_restart_slot().await?;
 
     let symbols = client.get_token_symbols(&[cfg.base_mint, cfg.quote_mint]).await;
     let sym = |mint: &Pubkey| symbols.get(mint).map(String::as_str).unwrap_or("?");
@@ -644,7 +646,7 @@ async fn cmd_markets_view(config_path: &std::path::Path, market: Option<String>)
     let books = client.get_maker_books_for_market(&market).await?;
     let eligible: Vec<&MakerBook> = books
         .iter()
-        .filter(|b| b.is_auction_eligible(slot, cfg.maker_fee_ppm))
+        .filter(|b| b.is_auction_eligible(slot, last_restart_slot, cfg.maker_fee_ppm))
         .collect();
 
     let mut best_bid: Option<f64> = None;

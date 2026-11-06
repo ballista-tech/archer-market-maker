@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-11-06]
+
+### Security
+- **TLS no longer trusts the compromised eMudhra intermediates** (RUSTSEC-2026-0381/0382/0383). The Solana 2 client crates bundled frozen root lists (`webpki-roots` 0.24 / 0.25) that still include *emSign ECC Root CA - G3* and verified with `rustls-webpki` 0.101, which will not be patched. The bot now builds on `rustls` 0.23 only, with `rustls-webpki` 0.103.16 and `webpki-roots` 1.0.11. Rebuild any deployed binary; forks should take the same dependency set.
+
+### Changed
+- **Solana 4 and `archer-sdk` 0.5.1 from crates.io** (was Solana 2.3 and an `archer-sdk` git revision). `spl-token` 9, `spl-token-2022` 11, `spl-associated-token-account` 8; `CommitmentConfig` and `ComputeBudgetInstruction` now come from `solana-commitment-config` and `solana-compute-budget-interface`.
+- **`status` and `markets view` apply the cluster-restart rule.** A book last updated at or before the `LastRestartSlot` sysvar is skipped by the program; the fillable/eligible flags and top-of-book now read the sysvar and count only books the engine would fill.
+
 ## [2026-09-28]
 
 ### Changed
