@@ -397,16 +397,28 @@ async fn cmd_withdraw(config_path: &std::path::Path) -> Result<()> {
 async fn cmd_kill(config_path: &std::path::Path) -> Result<()> {
     let mm_config = load_config(config_path)?;
     init_tracing(&mm_config.monitoring.log_level);
-    let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
+    // Owner key present: unchanged behaviour. Delegate-only box: sign with the delegate.
+    let (signer, owner) = if mm_config.market.maker_keypair_path.is_empty() {
+        resolve_run_identity(&mm_config.market)?
+    } else {
+        let kp = load_keypair(&mm_config.market.maker_keypair_path)?;
+        let pk = kp.pubkey();
+        (kp, pk)
+    };
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
-    let book = client.get_maker_book(&market, &keypair.pubkey()).await?;
-    let ix = clear_book_ix(
-        &BookAuthority::owner(keypair.pubkey()),
-        &market,
-        book.last_updated_sequence_number + 1,
-    );
-    let sig = client.send_instructions(&[ix], &[&keypair], SendOptions::default().with_priority_fee(500_000)).await?;
+    let book = client.get_maker_book(&market, &owner).await?;
+    let authority = BookAuthority { maker: owner, signer: signer.pubkey() };
+    if authority.signer != owner {
+        anyhow::ensure!(
+            book.delegate == authority.signer,
+            "signer {} is not this book's delegate (on-chain delegate: {}); run set-delegate first",
+            authority.signer,
+            book.delegate
+        );
+    }
+    let ix = clear_book_ix(&authority, &market, book.last_updated_sequence_number + 1);
+    let sig = client.send_instructions(&[ix], &[&signer], SendOptions::default().with_priority_fee(500_000)).await?;
     println!("Book cleared: {sig}");
     Ok(())
 }
@@ -414,16 +426,16 @@ async fn cmd_kill(config_path: &std::path::Path) -> Result<()> {
 async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     let mm_config = load_config(config_path)?;
     let market: Pubkey = mm_config.market.market_pubkey.parse()?;
-    let keypair = load_keypair(&mm_config.market.maker_keypair_path)?;
+    let owner = resolve_owner_pubkey(&mm_config.market)?;
     let client = ArcherClient::new(&mm_config.connection.rpc_url);
     let sdk_config = client.get_market_config(&market).await?;
-    let book = client.get_maker_book(&market, &keypair.pubkey()).await?;
+    let book = client.get_maker_book(&market, &owner).await?;
     let bal = maker_balances(&book, &sdk_config);
     let header = client.get_market_header(&market).await?;
     let slot = client.get_slot().await?;
     let last_restart_slot = client.get_last_restart_slot().await?;
 
-    let (maker_book_pda, _) = derive_maker_book(&market, &keypair.pubkey());
+    let (maker_book_pda, _) = derive_maker_book(&market, &owner);
     let registered = match check_registry(&client, &market, &maker_book_pda).await {
         Some(true) => "yes",
         Some(false) => "NO (book not in registry)",
@@ -450,7 +462,7 @@ async fn cmd_status(config_path: &std::path::Path) -> Result<()> {
     println!("=== Archer Market Maker Status ===");
     println!("Market:        {market}");
     println!("Market status: {}", market_status_str(header.status));
-    println!("Maker:         {}", keypair.pubkey());
+    println!("Maker:         {owner}");
     println!("Book PDA:      {maker_book_pda}");
     println!("Book kind:     {}", kind_str(book.kind));
     println!("Book status:   {}", book_status_str(book.status));
@@ -706,6 +718,15 @@ fn load_keypair(path: &str) -> Result<Keypair> {
     let resolved = resolve_path(path);
     read_keypair_file(&resolved)
         .map_err(|e| anyhow::anyhow!("Failed to load keypair from {}: {e}", resolved.display()))
+}
+
+/// The book owner's pubkey: from the owner key file if set, else `maker_owner_pubkey`.
+fn resolve_owner_pubkey(m: &crate::config::MarketSettings) -> Result<Pubkey> {
+    if !m.maker_keypair_path.is_empty() {
+        return Ok(load_keypair(&m.maker_keypair_path)?.pubkey());
+    }
+    anyhow::ensure!(!m.maker_owner_pubkey.is_empty(), "set maker_keypair_path or maker_owner_pubkey");
+    m.maker_owner_pubkey.parse().context("Invalid maker_owner_pubkey")
 }
 
 fn init_tracing(level: &str) {
