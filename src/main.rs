@@ -205,6 +205,7 @@ async fn cmd_run(config_path: &std::path::Path, shadow: bool) -> Result<()> {
     let tx_sender = Arc::new(TxSender::new(
         rpc.clone(), signer.clone(),
         mm_config.execution.priority_fee_microlamports,
+        mm_config.execution.data_size_limit,
         mm_config.execution.shadow_mode, state.clone(),
     ));
 

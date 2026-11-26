@@ -159,6 +159,12 @@ pub struct ExecutionSettings {
     pub heartbeat_interval_ms: u64,
     #[serde(default = "default_priority_fee")]
     pub priority_fee_microlamports: u64,
+    /// Most account data, in bytes, a quoting transaction may load. Quotes go
+    /// out as v1 transactions, whose header carries this limit and reads a
+    /// missing value as 0, so it is always sent. It has to cover the Archer
+    /// program binary (~380 KB) plus the market and maker book accounts.
+    #[serde(default = "default_data_size_limit")]
+    pub data_size_limit: u32,
     #[serde(default)]
     pub shadow_mode: bool,
 }
@@ -233,6 +239,7 @@ fn validate_config(c: &MMConfig) -> Result<()> {
     anyhow::ensure!(c.strategy.vol_window >= 2, "vol_window must be >= 2");
     anyhow::ensure!(c.strategy.vol_baseline_bps > 0.0, "vol_baseline_bps must be positive");
     anyhow::ensure!(c.strategy.vol_max_multiplier >= 1.0, "vol_max_multiplier must be >= 1.0");
+    anyhow::ensure!(c.execution.data_size_limit > 0, "data_size_limit must be positive");
     Ok(())
 }
 
@@ -244,6 +251,7 @@ fn default_vol_baseline_bps() -> f64 { 5.0 }
 fn default_vol_max_multiplier() -> f64 { 5.0 }
 fn default_heartbeat_ms() -> u64 { 100 }
 fn default_priority_fee() -> u64 { 100 }
+fn default_data_size_limit() -> u32 { 400_000 }
 fn default_log_level() -> String { "info".into() }
 
 pub fn resolve_path(s: &str) -> PathBuf {

@@ -2,7 +2,7 @@
 
 [Archer](https://archer.exchange) is a fully on-chain order book exchange on Solana that eliminates adverse selection faced by market makers through sovereign maker books, parametric pricing, and pro-rata execution. Instead of a single shared order book, each market maker owns their own on-chain book — enabling zero write-lock contention, O(1) repricing, and incentives that reward depth over speed. [Read more about how Archer works](https://x.com/mmdhrumil/status/2026301400158810390).
 
-> **Caution:** Archer Exchange smart contract audits are currently in progress. Please use this software at your own discretion and start with lower funds.
+> **Audit:** The Archer v2 program has been fully audited by [OtterSec](https://osec.io).
 
 A simple market maker for the Archer Exchange.
 
@@ -94,6 +94,8 @@ Solana transactions cost compute units. The bot detects what changed since last 
 | `ClearBook` | ~180 | Shutdown, error, or stale feed |
 
 In practice, **~90% of cycles use the cheap mid-only path**, saving ~85% of CU.
+
+Quote updates are sent as **v1 transactions** ([SIMD-0385](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0385-transaction-v1.md)). The compute unit limit, priority fee and loaded-accounts size travel in the message header, so no ComputeBudget instructions are added and none of their CU is paid for. A v1 header reads a missing limit as 0, so the bot always sets all three; the loaded-accounts size comes from `data_size_limit`.
 
 ## Quick Start
 
@@ -237,7 +239,8 @@ All settings in `config/default.toml`:
 | `strategy` | `vol_baseline_bps` | `5.0` | Per-sample vol (bps) at which spreads are unchanged |
 | `strategy` | `vol_max_multiplier` | `5.0` | Maximum spread multiplier from vol scaling |
 | `execution` | `heartbeat_interval_ms` | `100` | Max idle time before heartbeat update |
-| `execution` | `priority_fee_microlamports` | `100` | Solana priority fee |
+| `execution` | `priority_fee_microlamports` | `100` | Solana priority fee (per compute unit; converted to the v1 header's lamport total) |
+| `execution` | `data_size_limit` | `400000` | Max account data (bytes) a quote transaction may load. Must cover the Archer program binary (~380 KB) |
 | `execution` | `shadow_mode` | `false` | Dry run mode |
 | `monitoring` | `log_level` | `info` | Log verbosity |
 

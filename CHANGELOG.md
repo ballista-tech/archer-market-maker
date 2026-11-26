@@ -5,6 +5,13 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-11-26]
+
+### Changed
+- **Quote updates are sent as v1 transactions** (SIMD-0385) instead of legacy ones. The compute unit limit, priority fee and loaded-accounts size now travel in the message header, so the two ComputeBudget instructions (and the 300 CU they cost) are gone. `priority_fee_microlamports` is still a per-CU rate; it is converted to the header's lamport total at the requested limit, rounded up. The one-off confirmed commands (`init`, `deposit`, `withdraw`, `kill`, `set-expiry`, `set-delegate`) still send legacy transactions.
+- **New `[execution].data_size_limit`** (default `400000`). A v1 header reads a missing loaded-accounts size as 0, so it is always sent. It has to cover the Archer program binary (~380 KB) plus the market and maker book; raise it if sends fail with `MaxLoadedAccountsDataSizeExceeded`.
+- README: the audit-in-progress caution is replaced with a note that Archer v2 is fully audited by OtterSec.
+
 ## [2026-11-06]
 
 ### Security

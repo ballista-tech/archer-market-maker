@@ -71,6 +71,12 @@ heartbeat_interval_ms = 100
 # Solana priority fee in microlamports per compute unit.
 priority_fee_microlamports = 100
 
+# Most account data (bytes) a quoting transaction may load. Quotes are sent as
+# v1 transactions, which carry this limit in the header. It must cover the
+# Archer program binary (~380 KB) plus the market and maker book accounts;
+# raise it if sends start failing with MaxLoadedAccountsDataSizeExceeded.
+data_size_limit = 400000
+
 # Shadow mode: compute quotes but don't send transactions.
 shadow_mode = false
 
